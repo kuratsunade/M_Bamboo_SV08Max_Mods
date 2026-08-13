@@ -1,0 +1,38 @@
+# >>> M_Bamboo_SV08MAX_MOD:SAFE_HOME_G28 BEGIN >>>
+# Version: 1
+# Maintainer: Master_Bamboo / 竹子
+# Purpose: Preserve touchscreen G28 ABI and route homing through M_Bamboo Safe Home.
+# 用途：保留触摸屏 G28 接口，并将回零路由至 M_Bamboo Safe Home。
+[gcode_macro G28]
+rename_existing: M9928
+gcode:
+    {% if printer.probe.is_calibrated %}
+        {% if params.X is defined or params.Y is defined or params.Z is defined %}
+            {% if params.X is defined and params.Y is defined and not params.Z is defined %}
+                M_BAMBOO_HOME_XY
+            {% else %}
+                {% if params.X is defined %}
+                    M_BAMBOO_HOME_X
+                {% endif %}
+                {% if params.Y is defined %}
+                    M_BAMBOO_HOME_Y
+                {% endif %}
+                {% if params.Z is defined %}
+                    M_BAMBOO_HOME_Z
+                {% endif %}
+            {% endif %}
+        {% else %}
+            M_BAMBOO_HOME_ALL
+        {% endif %}
+    {% else %}
+        {% if params.Z is defined or (params.X is not defined and params.Y is not defined) %}
+            {action_raise_error("M_Bamboo Safe Home: Eddy calibration data is missing. Complete the Sovol factory Eddy Current Sensor Calibration and SAVE_CONFIG first.")}
+        {% elif params.X is defined and params.Y is defined %}
+            M_BAMBOO_HOME_XY
+        {% elif params.X is defined %}
+            M_BAMBOO_HOME_X
+        {% else %}
+            M_BAMBOO_HOME_Y
+        {% endif %}
+    {% endif %}
+# <<< M_Bamboo_SV08MAX_MOD:SAFE_HOME_G28 END <<<

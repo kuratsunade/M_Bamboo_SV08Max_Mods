@@ -1,0 +1,10 @@
+# >>> M_Bamboo_SV08MAX_MOD:SAFE_HOME_LEGACY_HOMING_OVERRIDE BEGIN >>>
+# Version: 1
+# Maintainer: Master_Bamboo / 竹子
+# Purpose: Prevent the stock Sovol homing_override from re-entering the homing path.
+# 用途：防止原厂 Sovol homing_override 再次进入回零调用链。
+# IMPORTANT: the original [homing_override] section was REMOVED, not commented out.
+# 重要：原始 [homing_override] 已被彻底删除，并非仅注释禁用。
+# Original content is preserved in .mb_baseline / .last_mb_ver backups for rollback.
+# 原始内容保存在 .mb_baseline / .last_mb_ver 备份中，可用于回滚。
+# <<< M_Bamboo_SV08MAX_MOD:SAFE_HOME_LEGACY_HOMING_OVERRIDE END <<<
