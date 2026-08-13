@@ -1,0 +1,46 @@
+{
+  "feature": "config_optimization",
+  "version": "1.0.0",
+  "status": "release-candidate",
+  "requires": {
+    "safe_home": ">=1.0.0"
+  },
+  "files": [
+    {
+      "path": "features/config_optimization/config/macro_bed_mesh_adaptive.block",
+      "sha256": "9b1a23f18c2660603b16d9059187e4689cf758803765ed3f54f8015972feac7a"
+    },
+    {
+      "path": "features/config_optimization/config/macro_clean_nozzle.block",
+      "sha256": "d45c0c485c40a9d1cd65026919528d6ba3c25380eaf333b6c58e6fcca7fe6c2a"
+    },
+    {
+      "path": "features/config_optimization/config/macro_start_print_post_mesh.block",
+      "sha256": "05ae09df8db3a4aab23abc8648fb9391c6054e0450e2e742c1b7e5a4cd525053"
+    },
+    {
+      "path": "features/config_optimization/config/macro_start_print_pre_qgl.block",
+      "sha256": "bab5e742fbc9ec07b12da75be45815d4f05396677c171ad81d0d7f1fe52a6d39"
+    },
+    {
+      "path": "features/config_optimization/config/printer_motion_limits.block",
+      "sha256": "c30c5f9eb19f535acafd81fe8c2372b9ac7dbddf7496fc22704d528f3b4f306c"
+    },
+    {
+      "path": "features/config_optimization/config/printer_qgl_limits.block",
+      "sha256": "e4bde3907f7bed1547cff63bd1d426504990f4b62af930f1f61f2cf9ef3dc127"
+    },
+    {
+      "path": "features/config_optimization/config/printer_qgl_speed.block",
+      "sha256": "f15323ad66d3322a957c285cd723b13cfc70262aa940de0e12abd651b5e78ed3"
+    },
+    {
+      "path": "features/config_optimization/config/printer_xy_current_x.block",
+      "sha256": "a2164ba1805da592d08d6ee2958c807050fe1f197191087b3b14e6e0e9fbf2cf"
+    },
+    {
+      "path": "features/config_optimization/config/printer_xy_current_y.block",
+      "sha256": "ddb2ecf892972635a082fee3ee2a71663994136bf2c138520d6479fdc9d0fddf"
+    }
+  ]
+}

@@ -1,33 +1,44 @@
-# M_Bamboo_SV08Max_Mods — v1.0.0-rc1
+# M_Bamboo_SV08Max_Mods — v1.0.0-rc2
 
-First release candidate for the `safe_home` feature.
+[English](RELEASE_NOTES.md) | [简体中文](RELEASE_NOTES_CN.md)
 
-## Safe Home v1.0.0
+RC2 expands the initial production package from Safe Home only to two feature-aware modules.
 
-- Adds `M_Bamboo_Safe_Homing.py`.
-- Replaces the active Sovol `z_offset_calibration.py` with the validated M_Bamboo runtime version.
-- Removes active `[homing_override]` and leaves an explicit managed tombstone.
-- Preserves the touchscreen `G28` ABI through a managed macro.
-- Uses genuine Z homing before normal Eddy recalibration when Z is unknown.
-- Keeps explicit `USE_CURRENT_Z=1` refinement semantics for callers with a trustworthy Z reference.
-- Removes the Sovol `Zmax + 15` / approximately `Z520` bootstrap path from the M_Bamboo runtime backend.
-- Treats missing Eddy calibration as an explicit runtime/install boundary: complete Sovol factory Eddy calibration first.
+## Safe Home
+
+- Keeps the validated genuine HOME_Z recalibration path.
+- Keeps the factory-bootstrap boundary: missing Eddy calibration aborts instead of falling back to `Zmax + 15` / approximately `Z520`.
+- Adds formal ownership of `[stepper_z] position_min: -1` as a Safe Home safety dependency.
+- Continues to preserve touchscreen G28 compatibility.
 - Does not modify `probe_eddy_current.py` or MCU firmware.
+
+## Config Optimization
+
+New `config_optimization` feature:
+
+- `max_velocity 700 → 400`
+- `max_accel 40000 → 15000`
+- X/Y TMC5160 `run_current 3.0 → 2.3`
+- QGL `speed 400 → 200`
+- QGL `retries 15 → 5`
+- QGL `max_adjust 20 → 5`
+- Adaptive Mesh `PGP=0 → PGP=1`
+- Randomized/cross-hatch `CLEAN_NOZZLE`
+- `START_PRINT` acceleration and two-stage current-Z Z-offset verification
+
+Config Optimization depends on Safe Home because the START_PRINT calibration calls use Safe Home's validated current-Z semantics.
 
 ## Installer
 
-- Dry-run by default.
-- Validates Eddy calibration data before install.
-- Recognizes the stock snapshot and validated H3 development backend hashes.
-- Uses bounded `.mb_baseline` and `.last_mb_ver` backups.
-- Migrates development managed markers to production Safe Home markers.
-- Compiles Python payloads before and after installation.
-- Restarts Klipper and checks service state by default.
-- Automatically rolls back exact pre-apply bytes if installation validation/restart fails.
-- Supports `--rollback`, `--restore-baseline`, `--raw-diff`, and `--no-restart`.
+- Adds `safe_home`, `config_optimization`, and `all` feature selection.
+- `all` installs in dependency order.
+- Adds feature-scoped bounded previous-version snapshots for shared config files.
+- Keeps `.mb_baseline` as the persistent first-seen baseline.
+- Bootstrap downloads a full snapshot, verifies `SHA256SUMS`, runs the installer, and cleans its temporary directory.
 
-## RC status
+## Documentation
 
-Normal Home All, touchscreen homing, HOME-FIRST Eddy recalibration, contact verification, SAVE_CONFIG and restart behavior have been validated during development.
-
-Before tagging final v1.0.0, run the production package regression checklist, including a controlled missing-Eddy runtime fail-safe test.
+- English and Simplified Chinese README pages are separated and cross-linked.
+- English and Simplified Chinese Release Notes are separated and cross-linked.
+- Adds an explicit AI-assisted development disclosure.
+- Adds Config Optimization documentation.

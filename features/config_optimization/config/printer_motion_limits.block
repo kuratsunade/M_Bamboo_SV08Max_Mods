@@ -1,0 +1,8 @@
+# >>> M_Bamboo_SV08MAX_MOD:CONFIG_MOTION_LIMITS BEGIN >>>
+# Version: 1
+# Maintainer: Master_Bamboo / 竹子
+# Stock values: max_velocity=700, max_accel=40000
+# Managed values: max_velocity=400, max_accel=15000
+max_velocity: 400
+max_accel: 15000
+# <<< M_Bamboo_SV08MAX_MOD:CONFIG_MOTION_LIMITS END <<<

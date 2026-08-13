@@ -1,233 +1,134 @@
 # M_Bamboo_SV08Max_Mods
 
-A modular collection of configuration, safety, and quality-of-life improvements for the **Sovol SV08 Max (500 × 500)**.
+[English](README.md) | [简体中文](README_CN.md)
 
-一个面向 **Sovol SV08 Max（500 × 500）** 的模块化改进项目，目标是在尽量保留原厂兼容性的前提下，逐步改善 Klipper 行为、安全性、配置可维护性与后续扩展能力。
+A modular collection of safety, configuration, and quality-of-life improvements for the **Sovol SV08 Max (500 × 500)**.
 
 > Maintainer: **Master_Bamboo / 竹子**
 
----
+## Project goals
 
-## Project goals / 项目目标
+This project avoids MCU firmware recompilation whenever practical. It prefers Klipper configuration, G-code macros, user-space Python extras, and reversible installer tooling. Where Sovol-specific behavior diverges from upstream Klipper, the project generally moves behavior back toward standard Klipper semantics while preserving the SV08 Max touchscreen command ABI.
 
-This project is intentionally conservative about firmware changes.
+## AI-assisted development disclosure
 
-本项目尽量避免修改或重新编译 Sovol MCU firmware。优先使用：
+This project is developed with substantial assistance from **OpenAI ChatGPT** for code drafting, code review, architecture discussion, documentation, test planning, and analysis of Klipper/Sovol behavior. AI-generated suggestions are **not accepted blindly**: safety-critical behavior is reviewed by the maintainer and validated on real SV08 Max hardware before being promoted to a production release. The maintainer remains responsible for the final project decisions, published files, and release approval.
 
-- Klipper configuration
-- G-code macros
-- user-space Python extras
-- shell-based installer / rollback tooling
+Because this software can control moving and heated hardware, users should still review dry-run output, keep backups, and treat release-candidate builds as test software.
 
-Where Sovol-specific Klipper behavior differs from upstream Klipper, this project prefers to move behavior back toward **standard Klipper semantics and interfaces** whenever practical, while preserving SV08 Max touchscreen compatibility.
-
-当 Sovol 的定制行为与 Official Klipper 有明显偏离时，本项目优先尽量恢复到标准 Klipper 的行为、接口与语义，同时保持 SV08 Max 原厂触摸屏常用命令链的兼容性。
-
----
-
-## Features / 功能模块
-
-The project is organized as independent features. Features should be installable, upgradeable, and rollbackable separately.
-
-本项目按 feature 独立组织，后续应支持独立安装、升级与回滚。
+## Features
 
 | Feature | Status | Description |
 |---|---|---|
-| `safe_home` | v1.0.0-rc1 | Safer homing and Z-offset calibration behavior / 更安全的归零与 Z-offset 校准 |
-| `config_optimization` | Planned | `printer.cfg` / `Macro.cfg` parameter tuning / 参数优化 |
-| `hardware_cooling` | Planned | Electrical enclosure / bed cooling config for modified hardware / 硬件改装后的散热配置 |
-| `plr` | Planned | Power-loss recovery redesign / 断电续打重构 |
-| `restore` | Planned | Restore / rollback helpers / 恢复与回滚 |
+| `safe_home` | v1.0.0 RC | Safer homing and Z-offset / Eddy recalibration behavior |
+| `config_optimization` | v1.0.0 RC | Validated `printer.cfg` and `Macro.cfg` tuning |
+| `hardware_cooling` | Planned | Electrical enclosure / bed cooling configuration for modified hardware |
+| `plr` | Planned | Power-loss recovery redesign |
+| `restore` | Planned | Restore / rollback helpers |
 
----
+## Safe Home
 
-# Safe Home
+Safe Home provides safe unknown-Z clearance, controlled XY/Z homing, genuine Z homing before normal Eddy recalibration, and an explicit factory-bootstrap boundary. It also manages `[stepper_z] position_min: -1` as a Safe Home safety dependency.
 
-`Safe Home` is the first productionized feature in this project.
+**Prerequisite:** complete the stock Sovol Eddy Current Sensor Calibration and confirm `SAVE_CONFIG` before installing Safe Home. M_Bamboo does not retain the stock `Zmax + 15` / approximately `Z520` bootstrap fallback in its active runtime backend.
 
-它主要解决 SV08 Max 原厂 homing / Z-offset calibration 中几个比较危险或不清晰的行为：
+## Config Optimization
 
-- unknown-Z 状态下的安全抬升
-- raw X/Y homing 不应造成 Z 漂移
-- Z homing 必须在安全 XY 位置执行
-- 正常 Eddy recalibration 不再使用 `Zmax + 15` / `Z≈520` 的大范围 fake coordinate
-- 正常 recalibration 先建立真实 Z reference，再进行 contact verify / Eddy recalibration
-- Eddy calibration data 缺失时直接停止，而不是回退到长距离 blind probing
+`config_optimization` is a separate feature and depends on Safe Home because its `START_PRINT` flow uses the validated `USE_CURRENT_Z` calibration semantics.
 
-### Normal runtime policy / 正常运行策略
+Validated changes in this RC:
+
+- `[printer]` `max_velocity: 700 → 400`
+- `[printer]` `max_accel: 40000 → 15000`
+- X/Y TMC5160 `run_current: 3.0 → 2.3`
+- QGL `speed: 400 → 200`
+- QGL `retries: 15 → 5`
+- QGL `max_adjust: 20 → 5`
+- adaptive mesh `PGP=0 → PGP=1`
+- randomized contact point + cross-hatch `CLEAN_NOZZLE`
+- `START_PRINT` acceleration limit `15000 / 7500`
+- current-Z Z-offset verification before QGL and again after mesh
+
+The feature does **not** own Safe Home's G28 routing or Z safety backend.
+
+## Quick install
+
+### Recommended: download bootstrap, inspect, then run
+
+Dry-run both currently released features:
+
+```bash
+cd /home/sovol
+wget -O M_Bamboo_bootstrap.sh \
+  https://raw.githubusercontent.com/kuratsunade/M_Bamboo_SV08Max_Mods/main/bootstrap.sh
+sh M_Bamboo_bootstrap.sh all
+```
+
+Apply after reviewing the preview:
+
+```bash
+sh M_Bamboo_bootstrap.sh all --apply
+```
+
+Individual features remain available:
+
+```bash
+sh M_Bamboo_bootstrap.sh safe_home
+sh M_Bamboo_bootstrap.sh config_optimization
+```
+
+`config_optimization` requires Safe Home to already be present, or use `all` to install them in dependency order.
+
+### Convenience one-liner
+
+```bash
+wget -qO- https://raw.githubusercontent.com/kuratsunade/M_Bamboo_SV08Max_Mods/main/bootstrap.sh \
+  | sh -s -- all
+```
+
+Add `--apply` only after reviewing a dry-run.
+
+The bootstrap downloads the complete repository snapshot into an installer-owned `/tmp/M_Bamboo_SV08MAX.XXXXXX` directory, verifies `SHA256SUMS`, launches the feature installer, and removes its temporary files on success or failure.
+
+## Direct installer commands
+
+From an extracted release directory:
+
+```bash
+./install.sh all                    # dry-run both features
+./install.sh all --apply            # install both
+./install.sh safe_home              # Safe Home only
+./install.sh config_optimization    # Config Optimization only
+./install.sh all --raw-diff
+```
+
+Rollback is feature-aware. Config Optimization must be rolled back before Safe Home if both are installed because Config Optimization depends on Safe Home.
+
+## Backup policy
+
+Every modified active file receives a persistent first-seen baseline:
 
 ```text
-valid Eddy calibration
-        ↓
-Z unknown?
-        ↓
-M_Bamboo genuine HOME_Z
-        ↓
-trusted Z reference
-        ↓
-contact verify
-        ↓
-Eddy recalibration
+<file>.mb_baseline
 ```
 
-### Factory bootstrap boundary / 原厂初始化边界
-
-`M_Bamboo_SV08Max_Mods` does **not** replace the Sovol first-time Eddy bootstrap procedure.
-
-本项目**不接管**完全没有 Eddy calibration data 的首次初始化流程。
-
-If Eddy calibration data is missing, the Safe Home feature should refuse to continue and instruct the user to complete the standard Sovol Eddy calibration first.
-
-如果检测不到有效 Eddy calibration data，Safe Home 应直接拒绝继续，并提示用户先在原厂环境完成 Sovol Eddy Current Sensor Calibration 与 `SAVE_CONFIG`。
-
-This is deliberate: the stock Sovol bootstrap path may use a large temporary Z frame (`Zmax + 15`, approximately `Z≈520`). That behavior is allowed to exist on the **factory/setup side**, but is not retained inside the M_Bamboo maintained runtime backend.
-
-这是有意设计的边界：原厂首次 bootstrap 可以继续使用 Sovol 自己的 `Zmax + 15`（约 `Z≈520`）逻辑，但该逻辑不会保留在 M_Bamboo 维护的运行时 backend 中。
-
----
-
-## Before installing / 安装前必须完成
-
-Before installing `safe_home`:
-
-1. Complete the normal Sovol initial setup.
-2. Complete **Eddy Current Sensor Calibration** using the stock Sovol workflow.
-3. Confirm `SAVE_CONFIG` completes successfully.
-4. Make sure the printer can restart normally.
-5. Only then install the M_Bamboo Safe Home feature.
-
-安装 `safe_home` 之前：
-
-1. 先完成 Sovol 原厂初始化。
-2. 使用原厂流程完成 **Eddy Current Sensor Calibration**。
-3. 确认 `SAVE_CONFIG` 成功。
-4. 确认 Klipper 可以正常重启。
-5. 再安装 M_Bamboo Safe Home。
-
-> If you have just performed a factory reset, repeat the Sovol Eddy calibration first before reinstalling M_Bamboo.
->
-> 如果刚刚执行过 factory reset，请先重新完成原厂 Eddy 校准，再重新安装 M_Bamboo。
-
----
-
-## File ownership / 文件管理方式
-
-Backend Python files are whole-file managed by M_Bamboo when the installed version is recognized and compatible.
-
-Backend Python 文件采用整文件管理，但安装前必须备份并进行版本 / checksum 检查。
-
-Typical backend files:
+Shared config files also use bounded feature-scoped previous-version slots, for example:
 
 ```text
-klippy/extras/M_Bamboo_Safe_Homing.py
-klippy/extras/z_offset_calibration.py
+printer.cfg.last_mb_safe_home
+printer.cfg.last_mb_config_optimization
 ```
 
-Configuration files are **not** wholesale overwritten. Managed blocks use stable markers:
+This prevents one feature rollback from silently restoring another feature's older configuration state.
 
-配置文件不会整文件覆盖，而使用稳定的 BEGIN / END managed block：
+## Documentation
 
-```ini
-# >>> M_Bamboo_SV08MAX_MOD:SAFE_HOME BEGIN >>>
-# Version: 1
-# Maintainer: Master_Bamboo / 竹子
-...
-# <<< M_Bamboo_SV08MAX_MOD:SAFE_HOME END <<<
-```
+- [Safe Home installation & recovery](docs/SAFE_HOME_INSTALL.md)
+- [Config Optimization](docs/CONFIG_OPTIMIZATION.md)
+- [Safe Home regression checklist](docs/SAFE_HOME_REGRESSION.md)
+- [Release notes](RELEASE_NOTES.md)
+- [中文 Release Notes](RELEASE_NOTES_CN.md)
 
----
+## Release status
 
-## Backup policy / 备份策略
-
-Every modified active file must be backed up before overwrite.
-
-每个被修改的 active file 在覆盖前必须备份。
-
-```text
-<file>.mb_baseline   first-seen pre-install baseline; never overwritten
-<file>.last_mb_ver   latest pre-M_Bamboo modification state; overwritten on upgrade
-```
-
-The backup count is intentionally bounded. The installer should not create unlimited timestamp backup directories.
-
-备份数量必须有上限，不采用无限累积的时间戳备份目录。
-
----
-
-## Installation model / 安装模型
-
-The repository installer now provides:
-
-- machine / version detection
-- feature-aware install / upgrade / rollback
-- pretty dry-run preview
-- checksum verification
-- backup before write
-- Python `py_compile` validation
-- Klipper restart and health check
-- automatic rollback on failed validation
-- cleanup of installer-owned temporary files
-
-当前 installer 已提供 Safe Home 的 preflight、dry-run、版本识别、备份、`py_compile`、重启检查与失败自动 rollback。未来其它 feature 会复用同一架构。
-
----
-
-
-### Safe Home installer commands / 安装命令
-
-From an extracted release directory on the printer:
-
-```bash
-./install.sh safe_home
-```
-
-The default is **dry-run**. Review the preview first.
-
-```bash
-./install.sh safe_home --apply
-```
-
-Audit full config changes:
-
-```bash
-./install.sh safe_home --raw-diff
-```
-
-Rollback to the immediately previous version:
-
-```bash
-./install.sh safe_home --rollback
-```
-
-Restore first-seen baseline:
-
-```bash
-./install.sh safe_home --restore-baseline
-```
-
-## Current status / 当前状态
-
-`safe_home` has completed the main behavior validation on an SV08 Max, including:
-
-- fresh boot `G28`
-- individual X / Y / Z homing
-- touchscreen Home X / Y / Z / All
-- genuine Z home before normal Eddy recalibration
-- contact verify after real Z reference
-- removal of `Z≈520 / Z≈500` from the normal M_Bamboo recalibration path
-
-The missing-Eddy fail-safe branch should also be regression-tested before tagging the first public release.
-
-在首个公开 release tag 之前，仍建议补做一次可恢复的“Eddy calibration data missing”异常分支 regression test。
-
----
-
-## Disclaimer / 免责声明
-
-This project modifies Klipper-side behavior on a large-format CoreXY printer. Always review the dry-run output and keep a recoverable backup before applying changes.
-
-本项目会修改大尺寸 CoreXY 3D 打印机上的 Klipper 行为。安装前请仔细检查 dry-run，并确保存在可恢复备份。
-
-This project is community-maintained and is not an official Sovol product.
-
-本项目为社区维护项目，并非 Sovol 官方产品。
+`v1.0.0-rc2` combines the productionized Safe Home feature with the first release-candidate packaging of Config Optimization. Run a dry-run and review the generated diff before applying to any additional machine.

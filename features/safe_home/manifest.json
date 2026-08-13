@@ -1,4 +1,5 @@
 {
+  "feature": "safe_home",
   "version": "1.0.0",
   "status": "release-candidate",
   "requires": {
@@ -23,13 +24,12 @@
       "sha256": "5986e316acbc7c90def526f5d4ffe40859fa38f90d1f2ee4219ba766b27ffa61"
     },
     {
+      "path": "features/safe_home/config/printer_z_min_safety.block",
+      "sha256": "822710c89138366daf569e19dce97dec21812db5286e4c1e12431bfff4464173"
+    },
+    {
       "path": "features/safe_home/config/macro_g28.block",
       "sha256": "79f890dd5cfcf2eb5c75c5b36aa8c167d2196629cb4fc11e4d8a4afbd23d7fcf"
     }
-  ],
-  "runtime_policy": {
-    "calibrated": "genuine HOME_Z then current-Z contact verify/recalibration",
-    "uncalibrated": "abort; complete Sovol factory Eddy calibration first",
-    "factory_bootstrap": "owned by Sovol stock setup"
-  }
+  ]
 }

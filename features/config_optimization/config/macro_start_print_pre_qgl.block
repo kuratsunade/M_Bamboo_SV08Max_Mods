@@ -1,0 +1,8 @@
+    # >>> M_Bamboo_SV08MAX_MOD:CONFIG_START_PRINT_PRE_QGL BEGIN >>>
+    # Version: 1
+    # Maintainer: Master_Bamboo / 竹子
+    # Stock: ACCEL=40000 ACCEL_TO_DECEL=10000; stock Z offset call
+    # Managed: ACCEL=15000 ACCEL_TO_DECEL=7500; Safe Home current-Z path
+    SET_VELOCITY_LIMIT ACCEL=15000 ACCEL_TO_DECEL=7500
+    Z_OFFSET_CALIBRATION METHOD=force_overlay BED_TEMP={printer.heater_bed.target} USE_CURRENT_Z=1 ZDBG=1
+    # <<< M_Bamboo_SV08MAX_MOD:CONFIG_START_PRINT_PRE_QGL END <<<

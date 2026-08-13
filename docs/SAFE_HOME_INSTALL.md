@@ -46,16 +46,15 @@ Why:
 
 ## 2. Installer preflight / 安装前检查
 
-A production installer should verify at least:
+The installer verifies at least:
 
 ```text
-[ ] target machine looks like Sovol SV08 Max
 [ ] expected Klipper directories exist
-[ ] printer.cfg / Macro.cfg are writable
-[ ] probe_eddy_current section exists
+[ ] printer.cfg / Macro.cfg are available
 [ ] valid Eddy calibration data exists
-[ ] active backend version is recognized
-[ ] backup slots are writable
+[ ] active z_offset backend version is recognized
+[ ] release payload checksums are valid
+[ ] Python payloads compile successfully
 ```
 
 Missing Eddy calibration is a **hard install block** for Safe Home.
@@ -76,9 +75,61 @@ confirm SAVE_CONFIG, then run the installer again.
 
 ---
 
-## 3. Installer commands / 安装命令
+## 3. Bootstrap installer / Bootstrap 安装器
 
-From the extracted `M_Bamboo_SV08Max_Mods` release directory:
+Recommended workflow on the printer:
+
+```bash
+cd /home/sovol
+wget -O M_Bamboo_bootstrap.sh \
+  https://raw.githubusercontent.com/kuratsunade/M_Bamboo_SV08Max_Mods/main/bootstrap.sh
+sh M_Bamboo_bootstrap.sh safe_home
+```
+
+The first run is a dry-run. After reviewing the preview:
+
+```bash
+sh M_Bamboo_bootstrap.sh safe_home --apply
+```
+
+Bootstrap behavior:
+
+```text
+create /tmp/M_Bamboo_SV08MAX.XXXXXX
+→ download full repository snapshot
+→ extract inside installer-owned temp directory
+→ verify SHA256SUMS
+→ invoke install.sh / installer.py
+→ cleanup exact installer-owned temp directory
+```
+
+By default, temporary files are cleaned on both success and failure. For debugging only, set:
+
+```bash
+M_BAMBOO_KEEP_TEMP=1 sh M_Bamboo_bootstrap.sh safe_home
+```
+
+Convenience one-liner for testing:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/kuratsunade/M_Bamboo_SV08Max_Mods/main/bootstrap.sh \
+  | sh -s -- safe_home
+```
+
+Apply via one-liner:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/kuratsunade/M_Bamboo_SV08Max_Mods/main/bootstrap.sh \
+  | sh -s -- safe_home --apply
+```
+
+For stable public releases, pin `M_BAMBOO_REF` to a release tag instead of tracking `main`.
+
+---
+
+## 4. Direct installer commands / 直接安装命令
+
+From an extracted `M_Bamboo_SV08Max_Mods` release directory:
 
 ```bash
 ./install.sh safe_home
@@ -100,7 +151,9 @@ Useful maintenance commands:
 
 Use `--no-restart` only for development/debugging; normal production apply restarts Klipper and verifies that the service returns active.
 
-## 4. Dry-run / 预览
+---
+
+## 5. Dry-run / 预览
 
 Before applying changes, always run the installer in dry-run mode.
 
@@ -114,19 +167,11 @@ Expected dry-run categories:
 ! remove or disable risky stock behavior
 ```
 
-The preview should show:
-
-- files to be changed
-- managed blocks to be inserted / replaced
-- backend files to be replaced
-- backup targets
-- detected source version
-- expected target version
-- warnings / install blockers
+The preview should show files to be changed, managed blocks, backend replacements, backup targets, source version, target version, and blockers.
 
 ---
 
-## 5. Safe Home runtime behavior / 运行逻辑
+## 6. Safe Home runtime behavior / 运行逻辑
 
 ### Valid Eddy calibration + Z unknown
 
@@ -157,7 +202,7 @@ Safe Home 不应回退到原厂 `Zmax + 15` acquisition。
 
 ---
 
-## 6. Expected files / 相关文件
+## 7. Expected files / 相关文件
 
 Backend:
 
@@ -166,6 +211,9 @@ Backend:
 /home/sovol/klipper/klippy/extras/z_offset_calibration.py
 ```
 
+Safe Home also owns `[stepper_z] position_min: -1` as a negative-Z travel safety dependency.
+Safe Home 同时管理 `[stepper_z] position_min: -1`，因为它属于负 Z 行程安全边界。
+
 Configuration:
 
 ```text
@@ -173,7 +221,7 @@ printer.cfg
 Macro.cfg
 ```
 
-Configuration edits should be contained in stable managed blocks such as:
+Configuration edits are contained in stable managed blocks such as:
 
 ```ini
 # >>> M_Bamboo_SV08MAX_MOD:SAFE_HOME BEGIN >>>
@@ -189,29 +237,28 @@ Do not edit Klipper's `SAVE_CONFIG` generated block manually.
 
 ---
 
-## 7. Backup & rollback / 备份与回滚
+## 8. Backup & rollback / 备份与回滚
 
 Before modifying any active file:
 
 ```text
 <file>.mb_baseline
-<file>.last_mb_ver
+<file>.last_mb_safe_home
 ```
 
 Rules:
 
 - `.mb_baseline` is created once from the first-seen pre-install state.
 - `.mb_baseline` is never overwritten.
-- `.last_mb_ver` is refreshed before each M_Bamboo upgrade.
-- temporary installer payloads are not backups and should be cleaned after install.
+- `.last_mb_safe_home` is the bounded previous-version slot for Safe Home on shared files.
+- Feature-scoped slots prevent another feature's config state from being rolled back accidentally.
+- temporary installer payloads are not backups and are cleaned after install.
 
 Rollback should restore the appropriate saved state and then restart Klipper.
 
-回滚时应恢复对应备份，然后重启 Klipper。
-
 ---
 
-## 8. Post-install regression / 安装后回归测试
+## 9. Post-install regression / 安装后回归测试
 
 Recommended minimum regression:
 
@@ -222,23 +269,11 @@ restart Klipper
 → G28
 ```
 
-Expected:
-
-- safe Z clearance before XY movement when Z is unknown
-- raw X/Y homing does not alter physical Z
-- Z homes at the configured safe XY location
-- final state reports `xyz` homed
+Expected: safe Z clearance before XY movement when Z is unknown; raw X/Y homing does not alter physical Z; Z homes at the configured safe XY location; final state reports `xyz` homed.
 
 ### Test B — Screen Home controls
 
-Test:
-
-- Home X
-- Home Y
-- Home Z
-- Home All
-
-Expected: no crash, no unexpected Z descent, touchscreen commands remain compatible.
+Test Home X, Home Y, Home Z, and Home All. Expected: no crash, no unexpected Z descent, touchscreen commands remain compatible.
 
 ### Test C — Screen Eddy recalibration
 
@@ -275,7 +310,7 @@ Do not perform this test without a verified backup / restore path.
 
 ---
 
-## 9. Factory reset / 恢复出厂后的处理
+## 10. Factory reset / 恢复出厂后的处理
 
 After a true Sovol factory reset:
 
@@ -295,33 +330,16 @@ Do not reinstall Safe Home before the stock Eddy calibration is complete.
 
 ---
 
-## 10. Known non-blocking behavior / 已知但不阻塞发布的问题
+## 11. Known non-blocking behavior / 已知但不阻塞发布的问题
 
-On a fresh boot, the Sovol touchscreen may issue independent:
-
-```text
-G28 X
-G28 Y
-```
-
-Because Z remains intentionally unhomed between those commands, the Safe Home backend may perform the unknown-Z safe clearance twice.
+On a fresh boot, the Sovol touchscreen may issue independent `G28 X` and `G28 Y`. Because Z remains intentionally unhomed between those commands, the Safe Home backend may perform the unknown-Z safe clearance twice.
 
 This is safe but redundant and is not considered a blocker for Safe Home v1.0.
 
-在 fresh boot 下，触摸屏可能分开发送 `G28 X` 与 `G28 Y`，因此 unknown-Z safe clearance 可能执行两次。该行为安全但略显冗余，目前不作为 v1.0 阻塞项。
-
 ---
 
-## 11. Release policy / 发布策略
+## 12. Release policy / 发布策略
 
-`safe_home` should be released as an independent feature of `M_Bamboo_SV08Max_Mods`.
+`safe_home` is released as an independent feature of `M_Bamboo_SV08Max_Mods`.
 
-Recommended first public feature version:
-
-```text
-Safe Home v1.0.0
-```
-
-Development labels such as H2 / H3A / H3B-1 / H3B-2 should remain internal history and should not appear as user-facing release versions.
-
-H2 / H3A / H3B-1 / H3B-2 等开发阶段命名应仅保留在开发历史中，不作为最终用户版本号。
+Development labels such as H2 / H3A / H3B-1 / H3B-2 remain internal history and should not appear as user-facing release versions.

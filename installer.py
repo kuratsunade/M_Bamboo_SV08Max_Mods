@@ -1,27 +1,18 @@
 #!/usr/bin/env python3
-"""M_Bamboo_SV08Max_Mods feature installer.
+"""M_Bamboo_SV08Max_Mods feature installer (v1.0.0-rc2).
 
-Safe Home v1.0.0 is the first supported feature.
-Default mode is dry-run. Use --apply to write, --rollback to restore the
-immediately previous version, or --restore-baseline to restore first-seen files.
+Features:
+  safe_home
+  config_optimization
+  all
+
+Default is dry-run. --apply writes changes. Backups are bounded and feature-aware.
 """
-
-import argparse
-import difflib
-import hashlib
-import json
+import argparse, difflib, hashlib, json, py_compile, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
-import py_compile
-import re
-import shutil
-import subprocess
-import sys
-import tempfile
 
 PROJECT = "M_Bamboo_SV08Max_Mods"
-PROJECT_VERSION = "1.0.0"
-FEATURE = "safe_home"
-FEATURE_VERSION = "1.0.0"
+PROJECT_RELEASE = "1.0.0-rc2"
 NS = "M_Bamboo_SV08MAX_MOD"
 SAVE_MARKER = "#*# <---------------------- SAVE_CONFIG ---------------------->"
 
@@ -42,10 +33,7 @@ def sha256(path):
 
 
 def color(code, text):
-    if not sys.stdout.isatty():
-        return text
-    return f"\033[{code}m{text}\033[0m"
-
+    return f"\033[{code}m{text}\033[0m" if sys.stdout.isatty() else text
 
 def cyan(s): return color("1;36", s)
 def green(s): return color("1;32", s)
@@ -55,383 +43,414 @@ def dim(s): return color("2", s)
 
 
 def split_save_config(text):
-    idx = text.find(SAVE_MARKER)
-    if idx < 0:
-        return text, ""
-    return text[:idx], text[idx:]
+    i = text.find(SAVE_MARKER)
+    return (text, "") if i < 0 else (text[:i], text[i:])
 
 
-def section_span(text, section_name):
-    pat = re.compile(r"(?m)^\[" + re.escape(section_name) + r"\]\s*$")
-    m = pat.search(text)
-    if not m:
-        return None
-    nxt = re.search(r"(?m)^\[[^\]\n]+\]\s*$", text[m.end():])
-    end = m.end() + (nxt.start() if nxt else len(text[m.end():]))
+def section_span(text, name):
+    m = re.search(r"(?m)^\[" + re.escape(name) + r"\]\s*(?:#.*)?$", text)
+    if not m: return None
+    n = re.search(r"(?m)^\[[^\]\n]+\]", text[m.end():])
+    end = m.end() + (n.start() if n else len(text[m.end():]))
     return m.start(), end
 
 
-def managed_span(text, name):
-    pat = re.compile(
-        rf"(?ms)^# >>> {re.escape(NS)}:{re.escape(name)} BEGIN >>>\n.*?"
-        rf"^# <<< {re.escape(NS)}:{re.escape(name)} END <<<\n?"
-    )
-    m = pat.search(text)
+def managed_span(text, tag):
+    m = re.search(
+        rf"(?ms)^# >>> {re.escape(NS)}:{re.escape(tag)} BEGIN >>>\n.*?^# <<< {re.escape(NS)}:{re.escape(tag)} END <<<\n?",
+        text)
     return (m.start(), m.end()) if m else None
 
 
-def load_block(path):
-    return path.read_text(encoding="utf-8").rstrip() + "\n"
+def indented_managed_span(text, tag):
+    m = re.search(
+        rf"(?ms)^\s*# >>> {re.escape(NS)}:{re.escape(tag)} BEGIN >>>\n.*?^\s*# <<< {re.escape(NS)}:{re.escape(tag)} END <<<\n?",
+        text)
+    return (m.start(), m.end()) if m else None
 
 
 def replace_span(text, span, replacement):
     a, b = span
-    return text[:a] + replacement + "\n" + text[b:].lstrip("\n")
+    return text[:a] + replacement.rstrip() + "\n" + text[b:].lstrip("\n")
 
 
-def patch_printer(text, safe_block, tombstone):
-    head, tail = split_save_config(text)
+def load(root, rel):
+    return (root / rel).read_text(encoding="utf-8").rstrip() + "\n"
 
-    # Migrate development marker, replace production marker, or install section.
-    done = False
-    for tag in ("SAFE_HOME", "SAFE_HOMING_CONFIG"):
-        sp = managed_span(head, tag)
+
+def replace_key_block(sec, keys, block, tag, legacy_tags=()):
+    sp = managed_span(sec, tag)
+    if sp:
+        return sec
+    for oldtag in tuple(legacy_tags):
+        sp = managed_span(sec, oldtag)
         if sp:
-            head = replace_span(head, sp, safe_block)
-            done = True
-            break
-    if not done:
-        for secname in ("M_Bamboo_Safe_Homing", "h2_homing_debug_v3"):
-            sp = section_span(head, secname)
-            if sp:
-                head = replace_span(head, sp, safe_block)
-                done = True
-                break
-    if not done:
-        zsp = section_span(head, "z_offset_calibration")
-        if not zsp:
-            raise RuntimeError("Missing [z_offset_calibration] in printer.cfg")
-        pos = zsp[1]
-        head = head[:pos] + "\n" + safe_block + "\n" + head[pos:].lstrip("\n")
-
-    # Remove/migrate the stock homing_override and leave an explicit tombstone.
-    done = False
-    for tag in ("SAFE_HOME_LEGACY_HOMING_OVERRIDE", "LEGACY_HOMING_OVERRIDE_REMOVED"):
-        sp = managed_span(head, tag)
-        if sp:
-            head = replace_span(head, sp, tombstone)
-            done = True
-            break
-    if not done:
-        sp = section_span(head, "homing_override")
-        if sp:
-            head = replace_span(head, sp, tombstone)
-        else:
-            sx = section_span(head, "stepper_x")
-            if sx:
-                head = head[:sx[0]] + tombstone + "\n" + head[sx[0]:]
-            else:
-                head = tombstone + "\n" + head
-
-    # No active legacy sections or development backend section may remain.
-    if section_span(head, "homing_override"):
-        raise RuntimeError("Active [homing_override] remains after patch")
-    if section_span(head, "h2_homing_debug_v3"):
-        raise RuntimeError("Active [h2_homing_debug_v3] remains after patch")
-    if not section_span(head, "M_Bamboo_Safe_Homing"):
-        raise RuntimeError("[M_Bamboo_Safe_Homing] missing after patch")
-    return head.rstrip() + "\n\n" + tail.lstrip("\n") if tail else head.rstrip() + "\n"
+            return replace_span(sec, sp, block)
+    lines = []
+    for k in keys:
+        lines.append(r"^" + re.escape(k) + r"\s*:\s*[^\n]+\n?")
+    pat = re.compile(r"(?m)" + "".join(lines))
+    m = pat.search(sec)
+    if not m:
+        # tolerate target values already surrounded by comments by locating first key through last key
+        first = re.search(r"(?m)^" + re.escape(keys[0]) + r"\s*:\s*[^\n]+$", sec)
+        last = re.search(r"(?m)^" + re.escape(keys[-1]) + r"\s*:\s*[^\n]+$", sec[first.end():] if first else "")
+        if first and last:
+            a = first.start(); b = first.end() + last.end()
+            return sec[:a] + block.rstrip() + "\n" + sec[b:].lstrip("\n")
+        raise RuntimeError("Could not locate keys: " + ", ".join(keys))
+    return sec[:m.start()] + block.rstrip() + "\n" + sec[m.end():]
 
 
-def patch_macro(text, g28_block):
-    # Replace production/development managed G28, or the stock G28 section.
-    for tag in ("SAFE_HOME_G28", "HOMING_G28"):
-        sp = managed_span(text, tag)
-        if sp:
-            out = replace_span(text, sp, g28_block)
-            break
-    else:
-        sp = section_span(text, "gcode_macro G28")
-        if not sp:
-            raise RuntimeError("Missing [gcode_macro G28] in Macro.cfg")
-        out = replace_span(text, sp, g28_block)
-    if "HDBG_HOME_" in out:
-        raise RuntimeError("Legacy HDBG_HOME command remains in Macro.cfg")
-    return out
+def patch_section(text, section, fn):
+    sp = section_span(text, section)
+    if not sp: raise RuntimeError(f"Missing [{section}]")
+    a, b = sp
+    return text[:a] + fn(text[a:b]) + text[b:]
 
 
 def extract_eddy_calibrate_value(text):
-    # Direct live section value.
     head, tail = split_save_config(text)
     sp = section_span(head, "probe_eddy_current eddy")
     if sp:
         sec = head[sp[0]:sp[1]]
         m = re.search(r"(?ms)^calibrate\s*:\s*(.*?)(?=^\S[^:\n]*\s*:|^\[|\Z)", sec)
-        if m:
-            return m.group(1).strip()
-
-    # SAVE_CONFIG representation: '#*# [probe_eddy_current eddy]' and '#*# calibrate ='.
+        if m: return m.group(1).strip()
     m = re.search(
-        r"(?ms)^#\*# \[probe_eddy_current eddy\]\s*$.*?"
-        r"^#\*# calibrate\s*=\s*(.*?)(?=^#\*# [A-Za-z_][A-Za-z0-9_ -]*\s*=|^#\*# \[|\Z)",
-        tail,
-    )
-    if m:
-        raw = re.sub(r"(?m)^#\*#\s?", "", m.group(1)).strip()
-        return raw
+        r"(?ms)^#\*# \[probe_eddy_current eddy\]\s*$.*?^#\*# calibrate\s*=\s*(.*?)(?=^#\*# [A-Za-z_][A-Za-z0-9_ -]*\s*=|^#\*# \[|\Z)", tail)
+    if m: return re.sub(r"(?m)^#\*#\s?", "", m.group(1)).strip()
     return None
 
 
 def eddy_calibrated(text):
     raw = extract_eddy_calibrate_value(text)
-    if not raw:
-        return False, 0
-    points = re.findall(r"[-+]?\d+(?:\.\d+)?\s*:\s*[-+]?\d+(?:\.\d+)?", raw)
-    return len(points) > 2, len(points)
+    pts = re.findall(r"[-+]?\d+(?:\.\d+)?\s*:\s*[-+]?\d+(?:\.\d+)?", raw or "")
+    return len(pts) > 2, len(pts)
 
 
-def verify_feature_manifest(root, feature_dir):
-    manifest_path = feature_dir / "manifest.json"
-    if not manifest_path.is_file():
-        raise RuntimeError("Safe Home manifest.json is missing")
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if data.get("version") != FEATURE_VERSION:
-        raise RuntimeError("Safe Home manifest version mismatch")
+def verify_feature_manifest(root, feature):
+    p = root / "features" / feature / "manifest.json"
+    data = json.loads(p.read_text(encoding="utf-8"))
     checked = 0
     for item in data.get("files", []):
-        rel = item.get("path")
-        expected = item.get("sha256")
-        if not rel or not expected:
-            raise RuntimeError("Invalid Safe Home manifest file entry")
-        target = root / rel
-        if not target.is_file():
-            raise RuntimeError("Release payload missing: %s" % rel)
-        actual = sha256(target)
-        if actual != expected:
-            raise RuntimeError("Release payload checksum mismatch: %s" % rel)
+        target = root / item["path"]
+        if not target.is_file() or sha256(target) != item["sha256"]:
+            raise RuntimeError("Release payload checksum mismatch: " + item["path"])
         checked += 1
-    if checked < 1:
-        raise RuntimeError("Safe Home manifest contains no payload files")
     return checked
 
 
-def backup_existing(path):
-    baseline = path.with_name(path.name + ".mb_baseline")
-    last = path.with_name(path.name + ".last_mb_ver")
-    if not baseline.exists():
-        shutil.copy2(path, baseline)
-    shutil.copy2(path, last)
+def baseline_backup(path):
+    b = path.with_name(path.name + ".mb_baseline")
+    if path.exists() and not b.exists(): shutil.copy2(path, b)
 
 
-def atomic_write(path, data):
-    tmp = path.with_name(path.name + ".M_Bamboo.tmp")
-    tmp.write_bytes(data)
-    tmp.replace(path)
+def feature_backup(path, feature):
+    if not path.exists(): return
+    baseline_backup(path)
+    slot = path.with_name(path.name + ".last_mb_" + feature)
+    shutil.copy2(path, slot)
 
 
-def unified(path, old, new):
-    return "".join(difflib.unified_diff(
-        old.splitlines(True), new.splitlines(True),
-        fromfile=str(path), tofile=str(path) + " (M_Bamboo Safe Home v1.0.0)"))
-
-
-def restart_klipper():
-    cmd = ["sudo", "systemctl", "restart", "klipper"]
-    subprocess.run(cmd, check=True)
-    chk = subprocess.run(["systemctl", "is-active", "klipper"], text=True,
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    if chk.returncode != 0 or chk.stdout.strip() != "active":
-        raise RuntimeError("Klipper service did not return active after restart")
-
-
-def restore_paths(paths, suffix):
+def restore_feature(paths, feature):
     restored = []
     for p in paths:
-        src = p.with_name(p.name + suffix)
-        if src.exists():
-            atomic_write(p, src.read_bytes())
-            restored.append(str(p))
+        slot = p.with_name(p.name + ".last_mb_" + feature)
+        if slot.exists():
+            atomic_write(p, slot.read_bytes()); restored.append(str(p))
     return restored
 
 
+def atomic_write(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".M_Bamboo.tmp")
+    tmp.write_bytes(data); tmp.replace(path)
+
+
+def unified(path, old, new):
+    return "".join(difflib.unified_diff(old.splitlines(True), new.splitlines(True), fromfile=str(path), tofile=str(path)+" (M_Bamboo)"))
+
+
+def restart_klipper():
+    subprocess.run(["sudo", "systemctl", "restart", "klipper"], check=True)
+    chk = subprocess.run(["systemctl", "is-active", "klipper"], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if chk.returncode or chk.stdout.strip() != "active": raise RuntimeError("Klipper service did not return active")
+
+# ---------- Safe Home ----------
+def patch_safe_printer(root, text):
+    head, tail = split_save_config(text)
+    safe = load(root, "features/safe_home/config/printer_safe_home.block")
+    tomb = load(root, "features/safe_home/config/printer_legacy_homing_override_tombstone.block")
+    zmin = load(root, "features/safe_home/config/printer_z_min_safety.block")
+
+    done = False
+    sp = managed_span(head, "SAFE_HOME")
+    if sp:
+        done = True
+    else:
+        sp = managed_span(head, "SAFE_HOMING_CONFIG")
+        if sp: head = replace_span(head, sp, safe); done = True
+    if not done:
+        for sec in ("M_Bamboo_Safe_Homing", "h2_homing_debug_v3"):
+            sp = section_span(head, sec)
+            if sp: head = replace_span(head, sp, safe); done = True; break
+    if not done:
+        zsp = section_span(head, "z_offset_calibration")
+        if not zsp: raise RuntimeError("Missing [z_offset_calibration]")
+        head = head[:zsp[1]] + "\n" + safe + "\n" + head[zsp[1]:].lstrip("\n")
+
+    done = False
+    sp = managed_span(head, "SAFE_HOME_LEGACY_HOMING_OVERRIDE")
+    if sp:
+        done = True
+    else:
+        sp = managed_span(head, "LEGACY_HOMING_OVERRIDE_REMOVED")
+        if sp: head = replace_span(head, sp, tomb); done = True
+    if not done:
+        sp = section_span(head, "homing_override")
+        if sp: head = replace_span(head, sp, tomb)
+        else: head = tomb + "\n" + head
+
+    def zfn(sec): return replace_key_block(sec, ["position_min"], zmin, "SAFE_HOME_Z_MIN", ("Z_MIN_SAFETY",))
+    head = patch_section(head, "stepper_z", zfn)
+    if section_span(head, "homing_override"): raise RuntimeError("Active [homing_override] remains")
+    return head.rstrip()+"\n\n"+tail.lstrip("\n") if tail else head.rstrip()+"\n"
+
+
+def patch_safe_macro(root, text):
+    block = load(root, "features/safe_home/config/macro_g28.block")
+    sp = managed_span(text, "SAFE_HOME_G28")
+    if sp: return text
+    sp = managed_span(text, "HOMING_G28")
+    if sp: return replace_span(text, sp, block)
+    sp = section_span(text, "gcode_macro G28")
+    if not sp: raise RuntimeError("Missing [gcode_macro G28]")
+    return replace_span(text, sp, block)
+
+# ---------- Config Optimization ----------
+def patch_config_printer(root, text):
+    head, tail = split_save_config(text)
+    specs = [
+        ("printer", ["max_velocity","max_accel"], "printer_motion_limits.block", "CONFIG_MOTION_LIMITS", ("MOTION_LIMITS",)),
+        ("tmc5160 stepper_x", ["run_current"], "printer_xy_current_x.block", "CONFIG_XY_CURRENT_X", ("XY_MOTOR_CURRENT_X",)),
+        ("tmc5160 stepper_y", ["run_current"], "printer_xy_current_y.block", "CONFIG_XY_CURRENT_Y", ("XY_MOTOR_CURRENT_Y",)),
+        ("quad_gantry_level", ["speed"], "printer_qgl_speed.block", "CONFIG_QGL_SPEED", ("QGL_SPEED",)),
+        ("quad_gantry_level", ["retries","max_adjust"], "printer_qgl_limits.block", "CONFIG_QGL_LIMITS", ("QGL_RETRY_LIMITS",)),
+    ]
+    for section, keys, fname, tag, legacy in specs:
+        block = load(root, "features/config_optimization/config/"+fname)
+        head = patch_section(head, section, lambda sec, k=keys,b=block,t=tag,l=legacy: replace_key_block(sec,k,b,t,l))
+    return head.rstrip()+"\n\n"+tail.lstrip("\n") if tail else head.rstrip()+"\n"
+
+
+def patch_config_macro(root, text):
+    # CLEAN_NOZZLE whole-section ownership.
+    clean = load(root, "features/config_optimization/config/macro_clean_nozzle.block")
+    sp = managed_span(text, "CONFIG_CLEAN_NOZZLE")
+    if sp:
+        pass
+    else:
+        sp = managed_span(text, "CLEAN_NOZZLE")
+        if sp: text = replace_span(text, sp, clean)
+        else:
+            sp = section_span(text, "gcode_macro CLEAN_NOZZLE")
+            if not sp: raise RuntimeError("Missing [gcode_macro CLEAN_NOZZLE]")
+            text = replace_span(text, sp, clean)
+
+    # Adaptive mesh line.
+    mesh = load(root, "features/config_optimization/config/macro_bed_mesh_adaptive.block")
+    sp = indented_managed_span(text, "CONFIG_BED_MESH_ADAPTIVE")
+    if sp:
+        pass
+    else:
+        sp = indented_managed_span(text, "BED_MESH_ADAPTIVE")
+        if sp: text = replace_span(text, sp, mesh)
+        else:
+            m = re.search(r"(?m)^\s*BED_MESH_CALIBRATE_BASE\s+ADAPTIVE=1\s+PGP=[01]\s+METHOD=rapid_scan\s*$", text)
+            if not m: raise RuntimeError("Could not locate adaptive bed mesh command")
+            text = text[:m.start()] + mesh.rstrip() + text[m.end():]
+
+    # START_PRINT block.
+    ssp = section_span(text, "gcode_macro START_PRINT")
+    if not ssp: raise RuntimeError("Missing [gcode_macro START_PRINT]")
+    a,b = ssp; sec=text[a:b]
+    pre = load(root, "features/config_optimization/config/macro_start_print_pre_qgl.block")
+    sp = indented_managed_span(sec, "CONFIG_START_PRINT_PRE_QGL")
+    if sp:
+        pass
+    else:
+        sp = indented_managed_span(sec, "START_PRINT_PRE_QGL")
+        if sp: sec = replace_span(sec, sp, pre)
+        else:
+            pat = re.compile(r"(?m)^\s*SET_VELOCITY_LIMIT ACCEL=(?:40000|15000) ACCEL_TO_DECEL=(?:10000|7500)\s*$\n^\s*Z_OFFSET_CALIBRATION METHOD=force_overlay BED_TEMP=\{printer\.heater_bed\.target\}(?: USE_CURRENT_Z=1 ZDBG=1)?\s*$")
+            m=pat.search(sec)
+            if not m: raise RuntimeError("Could not locate START_PRINT pre-QGL tuning lines")
+            sec=sec[:m.start()]+pre.rstrip()+sec[m.end():]
+
+    post = load(root, "features/config_optimization/config/macro_start_print_post_mesh.block")
+    sp = indented_managed_span(sec, "CONFIG_START_PRINT_POST_MESH")
+    if sp:
+        pass
+    else:
+        sp = indented_managed_span(sec, "START_PRINT_POST_MESH_Z_OFFSET")
+        if sp: sec = replace_span(sec, sp, post)
+        elif "USE_CURRENT_Z_ALLOWANCE=1.25" in sec:
+            m=re.search(r"(?m)^\s*Z_OFFSET_CALIBRATION .*USE_CURRENT_Z_ALLOWANCE=1\.25.*$", sec)
+            sec=sec[:m.start()]+post.rstrip()+sec[m.end():]
+        else:
+            m=re.search(r"(?m)^\s*BED_MESH_CALIBRATE\s*$", sec)
+            if not m: raise RuntimeError("Could not locate BED_MESH_CALIBRATE in START_PRINT")
+            sec=sec[:m.end()]+"\n"+post.rstrip()+sec[m.end():]
+    text=text[:a]+sec+text[b:]
+    return text.rstrip()+"\n"
+
+
+def safe_home_ready(printer, ztarget, zpayload):
+    head,_=split_save_config(printer)
+    if not section_span(head,"M_Bamboo_Safe_Homing"): return False
+    zh=sha256(ztarget)
+    return zh in KNOWN_ZOFFSET_HASHES or zh == sha256(zpayload)
+
+
+def print_header(title, subtitle):
+    print(); print(cyan("╭─ "+title+" ─╮")); print(cyan("│ "+subtitle)); print(cyan("╰"+"─"*(len(title)+4)+"╯")); print()
+
+
 def main():
-    ap = argparse.ArgumentParser(description=f"{PROJECT} installer")
-    ap.add_argument("feature", nargs="?", default=FEATURE, choices=[FEATURE])
+    ap=argparse.ArgumentParser(description=f"{PROJECT} {PROJECT_RELEASE} installer")
+    ap.add_argument("feature", nargs="?", default="all", choices=["safe_home","config_optimization","all"])
     ap.add_argument("--config-dir", default="/home/sovol/printer_data/config")
     ap.add_argument("--extras-dir", default="/home/sovol/klipper/klippy/extras")
     ap.add_argument("--apply", action="store_true")
-    ap.add_argument("--rollback", action="store_true", help="restore .last_mb_ver")
-    ap.add_argument("--restore-baseline", action="store_true", help="restore .mb_baseline")
+    ap.add_argument("--rollback", action="store_true")
+    ap.add_argument("--restore-baseline", action="store_true")
     ap.add_argument("--raw-diff", action="store_true")
     ap.add_argument("--force-unrecognized", action="store_true")
     ap.add_argument("--no-restart", action="store_true")
-    args = ap.parse_args()
+    args=ap.parse_args()
+    if sum(bool(x) for x in (args.apply,args.rollback,args.restore_baseline))>1: raise SystemExit("Choose one write mode")
 
-    modes = sum(bool(x) for x in (args.apply, args.rollback, args.restore_baseline))
-    if modes > 1:
-        raise SystemExit("Choose only one of --apply, --rollback, --restore-baseline")
+    root=Path(__file__).resolve().parent; cfg=Path(args.config_dir); extras=Path(args.extras_dir)
+    printer=cfg/"printer.cfg"; macro=cfg/"Macro.cfg"; ztarget=extras/"z_offset_calibration.py"; safe_target=extras/"M_Bamboo_Safe_Homing.py"
+    zpayload=root/"features/safe_home/payload/z_offset_calibration.py"; safepayload=root/"features/safe_home/payload/M_Bamboo_Safe_Homing.py"
+    for p in (printer,macro,ztarget):
+        if not p.is_file(): raise SystemExit("Missing required file: "+str(p))
 
-    root = Path(__file__).resolve().parent
-    feature_dir = root / "features" / FEATURE
-    config_dir = Path(args.config_dir)
-    extras_dir = Path(args.extras_dir)
-    printer = config_dir / "printer.cfg"
-    macro = config_dir / "Macro.cfg"
-    ztarget = extras_dir / "z_offset_calibration.py"
-    safe_target = extras_dir / "M_Bamboo_Safe_Homing.py"
-    zpayload = feature_dir / "payload" / "z_offset_calibration.py"
-    safepayload = feature_dir / "payload" / "M_Bamboo_Safe_Homing.py"
-    manifest_files_checked = verify_feature_manifest(root, feature_dir)
-    safe_block = load_block(feature_dir / "config" / "printer_safe_home.block")
-    tombstone = load_block(feature_dir / "config" / "printer_legacy_homing_override_tombstone.block")
-    g28_block = load_block(feature_dir / "config" / "macro_g28.block")
+    features=["safe_home","config_optimization"] if args.feature=="all" else [args.feature]
 
-    required = [printer, macro, ztarget, zpayload, safepayload]
-    missing = [str(p) for p in required if not p.is_file()]
-    if missing:
-        raise SystemExit("Missing required file(s):\n  " + "\n  ".join(missing))
+    if args.rollback:
+        if args.feature=="safe_home" and f"{NS}:CONFIG_START_PRINT_PRE_QGL BEGIN" in macro.read_text(encoding="utf-8"):
+            raise SystemExit("Rollback blocked: config_optimization depends on safe_home. Roll back config_optimization first or use 'all --rollback'.")
+        order=list(reversed(features)); restored=[]
+        for f in order:
+            paths=[printer,macro,ztarget,safe_target] if f=="safe_home" else [printer,macro]
+            restored += restore_feature(paths,f)
+            if f=="safe_home":
+                slot=safe_target.with_name(safe_target.name+".last_mb_safe_home")
+                if not slot.exists() and safe_target.exists() and sha256(safe_target)==sha256(safepayload): safe_target.unlink(); restored.append(str(safe_target)+" (removed)")
+        if not args.no_restart: restart_klipper()
+        print(green("Rollback complete")); [print("  ✓ "+x) for x in restored]; return
 
-    touched = [printer, macro, ztarget, safe_target]
-    if args.rollback or args.restore_baseline:
-        suffix = ".last_mb_ver" if args.rollback else ".mb_baseline"
-        # New backend may have no original backup; remove only if it is our exact payload.
-        restored = restore_paths(touched, suffix)
-        src = safe_target.with_name(safe_target.name + suffix)
-        if not src.exists() and safe_target.exists() and sha256(safe_target) == sha256(safepayload):
-            safe_target.unlink()
-            restored.append(str(safe_target) + " (removed; did not exist before install)")
-        if not args.no_restart:
-            restart_klipper()
-        print(cyan("Rollback complete / 恢复完成"))
-        for item in restored:
-            print("  " + green("✓") + " " + item)
-        return
+    if args.restore_baseline:
+        restored=[]
+        for p in (printer,macro,ztarget,safe_target):
+            b=p.with_name(p.name+".mb_baseline")
+            if b.exists(): atomic_write(p,b.read_bytes()); restored.append(str(p))
+        if not args.no_restart: restart_klipper()
+        print(green("Baseline restore complete")); [print("  ✓ "+x) for x in restored]; return
 
-    old_printer = printer.read_text(encoding="utf-8")
-    old_macro = macro.read_text(encoding="utf-8")
+    oldp=printer.read_text(encoding="utf-8"); oldm=macro.read_text(encoding="utf-8")
+    safe_p,safe_m=oldp,oldm
+    checks=0
 
-    # Hard prerequisite: Safe Home is installed only after Sovol factory Eddy setup.
-    has_cal, cal_points = eddy_calibrated(old_printer)
-    if not has_cal:
-        print(red("INSTALL BLOCKED / 安装已阻止"))
-        print("Eddy calibration data was not detected in printer.cfg/SAVE_CONFIG.")
-        print("请先使用 Sovol 原厂流程完成 Eddy Current Sensor Calibration，")
-        print("确认 SAVE_CONFIG 成功后，再运行 M_Bamboo Safe Home installer。")
-        raise SystemExit(2)
+    if "safe_home" in features:
+        checks += verify_feature_manifest(root,"safe_home")
+        has,pts=eddy_calibrated(oldp)
+        if not has:
+            print(red("INSTALL BLOCKED / 安装已阻止")); print("Complete Sovol factory Eddy calibration and SAVE_CONFIG first."); raise SystemExit(2)
+        zh=sha256(ztarget); zsource=KNOWN_ZOFFSET_HASHES.get(zh)
+        if zsource is None and zh!=sha256(zpayload) and not args.force_unrecognized: raise SystemExit("Unrecognized z_offset_calibration.py: "+zh)
+        with tempfile.TemporaryDirectory(prefix="M_Bamboo_compile_") as td:
+            py_compile.compile(str(zpayload),cfile=str(Path(td)/"z.pyc"),doraise=True); py_compile.compile(str(safepayload),cfile=str(Path(td)/"s.pyc"),doraise=True)
+        safe_p=patch_safe_printer(root,oldp); safe_m=patch_safe_macro(root,oldm)
+    else:
+        pts=eddy_calibrated(oldp)[1]; zsource="n/a"
 
-    zhash = sha256(ztarget)
-    zsource = KNOWN_ZOFFSET_HASHES.get(zhash)
-    if zsource is None and zhash != sha256(zpayload) and not args.force_unrecognized:
-        print(red("INSTALL BLOCKED / 安装已阻止"))
-        print("Unrecognized z_offset_calibration.py:")
-        print("  sha256 " + zhash)
-        print("Use --force-unrecognized only after reviewing --raw-diff and backups.")
-        raise SystemExit(3)
-    if zsource is None:
-        zsource = "target production" if zhash == sha256(zpayload) else "unrecognized (forced)"
-
-    # Compile payloads before any write.
-    with tempfile.TemporaryDirectory(prefix="M_Bamboo_SafeHome_compile_") as td:
-        py_compile.compile(str(zpayload), cfile=str(Path(td) / "zoff.pyc"), doraise=True)
-        py_compile.compile(str(safepayload), cfile=str(Path(td) / "safe.pyc"), doraise=True)
-
-    new_printer = patch_printer(old_printer, safe_block, tombstone)
-    new_macro = patch_macro(old_macro, g28_block)
+    newp,newm=safe_p,safe_m
+    if "config_optimization" in features:
+        checks += verify_feature_manifest(root,"config_optimization")
+        probe_printer=safe_p if "safe_home" in features else oldp
+        if not safe_home_ready(probe_printer, ztarget, zpayload) and "safe_home" not in features:
+            raise SystemExit("config_optimization requires Safe Home because START_PRINT uses its current-Z calibration semantics. Install safe_home first or use 'all'.")
+        newp=patch_config_printer(root,newp); newm=patch_config_macro(root,newm)
 
     if args.raw_diff:
-        print("===== printer.cfg =====")
-        print(unified(printer, old_printer, new_printer) or "(no changes)")
-        print("===== Macro.cfg =====")
-        print(unified(macro, old_macro, new_macro) or "(no changes)")
+        print("===== printer.cfg ====="); print(unified(printer,oldp,newp) or "(no changes)")
+        print("===== Macro.cfg ====="); print(unified(macro,oldm,newm) or "(no changes)")
 
     if not args.apply:
-        print()
-        print(cyan("╭─ M_Bamboo_SV08Max_Mods · Safe Home v1.0.0 · DRY RUN ─╮"))
-        print(cyan("│ Production package preview / 正式版安装预览             │"))
-        print(cyan("╰──────────────────────────────────────────────────────────╯"))
-        print()
-        print(cyan("Preflight / 安装前检查"))
-        print(f"  {green('✓')} release checksums      {manifest_files_checked} files verified")
-        print(f"  {green('✓')} Eddy calibration       valid ({cal_points} points detected)")
-        print(f"  {green('✓')} z_offset source        {zsource}")
-        print(f"  {green('✓')} payload py_compile     passed")
-        print()
-        print(cyan("Safe Home feature"))
-        print(f"  {yellow('~')} z_offset_calibration.py   whole-file → v{FEATURE_VERSION}")
-        print(f"  {yellow('~')} M_Bamboo_Safe_Homing.py   whole-file → v{FEATURE_VERSION}")
-        print(f"  {yellow('~')} printer.cfg               SAFE_HOME managed block")
-        print(f"  {red('!')} printer.cfg               remove active [homing_override]")
-        print(f"  {yellow('~')} Macro.cfg                 SAFE_HOME_G28 managed block")
-        print("      touchscreen ABI          G28 preserved")
-        print("      missing Eddy + G28 Z/All explicit error; no factory bootstrap")
-        print()
-        print(cyan("Runtime policy"))
-        print("  calibrated   → genuine HOME_Z → contact verify → Eddy recalibrate")
-        print("  uncalibrated → abort; Sovol factory calibration required")
-        print("  Zmax+15/≈520 → absent from M_Bamboo runtime backend")
-        print()
-        print(cyan("Backups on apply"))
-        print("  <file>.mb_baseline   create once / never overwrite")
-        print("  <file>.last_mb_ver   refresh before this install/upgrade")
-        print()
-        print(yellow("DRY RUN — nothing written / 未写入文件"))
-        print(dim("Use --raw-diff for complete config diffs; --apply to install."))
+        print_header(f"{PROJECT} · {PROJECT_RELEASE} · DRY RUN", "Feature-aware production preview / 模块化安装预览")
+        print(cyan("Selected features")); [print("  "+green("✓")+" "+f) for f in features]
+        print(f"  {green('✓')} payload checksums       {checks} files verified")
+        if "safe_home" in features:
+            print(f"  {green('✓')} Eddy calibration        valid ({pts} points)")
+            print("  ~ safe_home               genuine HOME_Z + Z position_min -1 + G28 routing")
+        if "config_optimization" in features:
+            print("  ~ config_optimization     motion/QGL/current + CLEAN_NOZZLE + adaptive mesh + START_PRINT")
+            print("      motion                max_velocity 700→400; max_accel 40000→15000")
+            print("      XY current            3.0→2.3 A")
+            print("      QGL                   speed 400→200; retries 15→5; max_adjust 20→5")
+            print("      adaptive mesh         PGP 0→1")
+            print("      START_PRINT           ACCEL 15000/7500 + two Safe Home Z-offset checks")
+            print("      CLEAN_NOZZLE          randomized contact + cross-hatch wiping")
+        print(); print(yellow("DRY RUN — nothing written / 未写入文件")); return
+
+    # Feature-scoped bounded snapshots. Do not refresh a rollback slot for a no-op apply.
+    safe_backend_changed = ("safe_home" in features and
+        (not safe_target.exists() or sha256(safe_target) != sha256(safepayload) or sha256(ztarget) != sha256(zpayload)))
+    safe_config_changed = ("safe_home" in features and (safe_p != oldp or safe_m != oldm))
+    safe_changed = safe_backend_changed or safe_config_changed
+    config_base_p, config_base_m = safe_p, safe_m
+    config_changed = ("config_optimization" in features and (newp != config_base_p or newm != config_base_m))
+    if not safe_changed and not config_changed:
+        print(green("Already at requested target state / 已是目标状态"))
         return
 
-    # Snapshot rollback data before writes.
-    for p in (printer, macro, ztarget):
-        backup_existing(p)
-    if safe_target.exists():
-        backup_existing(safe_target)
-
-    # Keep in-memory rollback copies for automatic failure recovery.
-    originals = {p: p.read_bytes() for p in (printer, macro, ztarget) if p.exists()}
-    safe_existed = safe_target.exists()
-    if safe_existed:
-        originals[safe_target] = safe_target.read_bytes()
-
+    originals={p:p.read_bytes() for p in (printer,macro,ztarget,safe_target) if p.exists()}; safe_existed=safe_target.exists()
     try:
-        atomic_write(safe_target, safepayload.read_bytes())
-        atomic_write(ztarget, zpayload.read_bytes())
-        atomic_write(printer, new_printer.encode("utf-8"))
-        atomic_write(macro, new_macro.encode("utf-8"))
+        if safe_changed:
+            for p in (printer,macro,ztarget): feature_backup(p,"safe_home")
+            if safe_target.exists(): feature_backup(safe_target,"safe_home")
+            atomic_write(safe_target,safepayload.read_bytes()); atomic_write(ztarget,zpayload.read_bytes())
+            atomic_write(printer,safe_p.encode()); atomic_write(macro,safe_m.encode())
+        if config_changed:
+            for p in (printer,macro): feature_backup(p,"config_optimization")
+            # The config snapshot is taken after Safe Home, preserving the dependency boundary.
+            atomic_write(printer,newp.encode()); atomic_write(macro,newm.encode())
 
-        # Static post-write validation.
-        py_compile.compile(str(safe_target), doraise=True)
-        py_compile.compile(str(ztarget), doraise=True)
-        final_printer = printer.read_text(encoding="utf-8")
-        final_macro = macro.read_text(encoding="utf-8")
-        if section_span(split_save_config(final_printer)[0], "homing_override"):
-            raise RuntimeError("post-write validation: [homing_override] still active")
-        ztext = ztarget.read_text(encoding="utf-8")
-        if ("z_max_position + 15" in ztext or
-                re.search(r"z_limit_position\s*=", ztext)):
-            raise RuntimeError("post-write validation: legacy Zmax+15 logic remains")
-        if "M_BAMBOO_HOME_" not in final_macro:
-            raise RuntimeError("post-write validation: Safe Home G28 routing missing")
-
-        if not args.no_restart:
-            restart_klipper()
+        if safe_target.exists(): py_compile.compile(str(safe_target),doraise=True)
+        if "safe_home" in features: py_compile.compile(str(ztarget),doraise=True)
+        fp=printer.read_text(encoding="utf-8"); fm=macro.read_text(encoding="utf-8")
+        if "safe_home" in features:
+            if section_span(split_save_config(fp)[0],"homing_override"): raise RuntimeError("[homing_override] remains")
+            if "position_min: -1" not in section_span_text(fp,"stepper_z"): raise RuntimeError("Safe Home Z minimum missing")
+        if "config_optimization" in features:
+            for token in ("CONFIG_MOTION_LIMITS BEGIN","CONFIG_QGL_SPEED BEGIN","CONFIG_CLEAN_NOZZLE BEGIN","CONFIG_START_PRINT_PRE_QGL BEGIN"):
+                if token not in fp+fm: raise RuntimeError("Config optimization marker missing: "+token)
+        if not args.no_restart: restart_klipper()
     except Exception as exc:
-        # Restore exact pre-apply bytes before exiting.
-        for p, data in originals.items():
-            atomic_write(p, data)
-        if not safe_existed and safe_target.exists():
-            safe_target.unlink()
+        for p,data in originals.items(): atomic_write(p,data)
+        if not safe_existed and safe_target.exists(): safe_target.unlink()
         if not args.no_restart:
-            try:
-                restart_klipper()
-            except Exception:
-                pass
-        raise SystemExit("Install failed; automatic rollback completed: %s" % (exc,))
+            try: restart_klipper()
+            except Exception: pass
+        raise SystemExit("Install failed; automatic rollback completed: "+str(exc))
 
-    print(green("Safe Home v1.0.0 installed successfully / 安装成功"))
-    print("Backups: .mb_baseline + .last_mb_ver")
-    if args.no_restart:
-        print(yellow("Klipper was not restarted (--no-restart)."))
-    else:
-        print(green("Klipper service: active"))
+    print(green("Installed successfully / 安装成功: "+", ".join(features)))
+    if not args.no_restart: print(green("Klipper service: active"))
 
 
-if __name__ == "__main__":
-    main()
+def section_span_text(text,name):
+    head,_=split_save_config(text); sp=section_span(head,name); return head[sp[0]:sp[1]] if sp else ""
+
+if __name__=="__main__": main()
