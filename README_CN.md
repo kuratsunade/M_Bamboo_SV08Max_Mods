@@ -10,12 +10,6 @@
 
 本项目在可行的情况下避免重新编译 MCU firmware，优先使用 Klipper 配置、G-code macro、用户空间 Python extras，以及可回滚的安装工具。对于与 Official Klipper 明显偏离的 Sovol 定制行为，本项目倾向于恢复到更标准的 Klipper 语义，同时保持 SV08 Max 原厂触摸屏常用命令 ABI 的兼容性。
 
-## AI 辅助开发声明
-
-本项目在开发过程中大量使用 **OpenAI ChatGPT** 辅助进行代码草拟、代码 review、架构讨论、文档编写、测试规划，以及 Klipper / Sovol 行为分析。AI 给出的建议**不会被未经验证地直接采用**：涉及安全的逻辑会由维护者审阅，并在真实 SV08 Max 硬件上验证后，才会进入 production release。最终的项目决策、发布文件以及 release approval 仍由维护者负责。
-
-由于本项目的软件能够控制真实的运动机构与加热部件，即使安装器提供 dry-run、备份和 rollback，用户仍应检查变更内容，并将 release-candidate 版本视为测试软件。
-
 ## 功能模块
 
 | Feature | 状态 | 说明 |
@@ -130,3 +124,11 @@ printer.cfg.last_mb_config_optimization
 ## 当前版本状态
 
 `v1.0.0-rc2` 将已经 productionized 的 Safe Home 与 Config Optimization 的首个 release-candidate package 合并。建议在任何额外机器上 apply 前都先运行 dry-run 并检查 diff。
+
+---
+
+## AI 辅助开发声明
+
+本项目在部分开发工作中使用了包括 **OpenAI ChatGPT** 在内的 AI 工具，作为代码草拟、review、文档编写、测试规划和技术讨论的辅助。AI 给出的建议**不会被未经验证地直接采用**：涉及安全的逻辑会由维护者审阅，并在真实 SV08 Max 硬件上验证后，才会进入 production release。最终的项目决策、发布文件以及 release approval 仍由维护者负责。
+
+由于本项目的软件能够控制真实的运动机构与加热部件，即使安装器提供 dry-run、备份和 rollback，用户仍应检查变更内容，并将 release-candidate 版本视为测试软件。

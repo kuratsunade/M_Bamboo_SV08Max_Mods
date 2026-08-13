@@ -24,11 +24,11 @@
     },
     {
       "path": "README.md",
-      "sha256": "e069d8011b2ad3e906805c8e03e3b912895f3d236efd3801a1fa901246bb30d3"
+      "sha256": "9510f79387d6d05932d611b309877c686b1daffcd9f6a0f665d534e009e2ccb9"
     },
     {
       "path": "README_CN.md",
-      "sha256": "5b336889800de34a33dd5f6a4e631249987ceb408e7295f205b71791cd73a325"
+      "sha256": "16a2b7532fc9dbc0de8fbe1c464968cf7512865ca92c4b5d44a60b847102b9ce"
     },
     {
       "path": "RELEASE_NOTES.md",

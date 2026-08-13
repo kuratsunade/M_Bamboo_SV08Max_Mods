@@ -10,12 +10,6 @@ A modular collection of safety, configuration, and quality-of-life improvements 
 
 This project avoids MCU firmware recompilation whenever practical. It prefers Klipper configuration, G-code macros, user-space Python extras, and reversible installer tooling. Where Sovol-specific behavior diverges from upstream Klipper, the project generally moves behavior back toward standard Klipper semantics while preserving the SV08 Max touchscreen command ABI.
 
-## AI-assisted development disclosure
-
-This project is developed with substantial assistance from **OpenAI ChatGPT** for code drafting, code review, architecture discussion, documentation, test planning, and analysis of Klipper/Sovol behavior. AI-generated suggestions are **not accepted blindly**: safety-critical behavior is reviewed by the maintainer and validated on real SV08 Max hardware before being promoted to a production release. The maintainer remains responsible for the final project decisions, published files, and release approval.
-
-Because this software can control moving and heated hardware, users should still review dry-run output, keep backups, and treat release-candidate builds as test software.
-
 ## Features
 
 | Feature | Status | Description |
@@ -132,3 +126,11 @@ This prevents one feature rollback from silently restoring another feature's old
 ## Release status
 
 `v1.0.0-rc2` combines the productionized Safe Home feature with the first release-candidate packaging of Config Optimization. Run a dry-run and review the generated diff before applying to any additional machine.
+
+---
+
+## AI-assisted development disclosure
+
+AI tools, including **OpenAI ChatGPT**, were used as development aids for selected tasks such as code drafting, review, documentation, test planning, and technical discussion. AI-generated suggestions are **not accepted blindly**: safety-critical behavior is reviewed by the maintainer and validated on real SV08 Max hardware before being promoted to a production release. The maintainer remains responsible for the final project decisions, published files, and release approval.
+
+Because this software can control moving and heated hardware, users should still review dry-run output, keep backups, and treat release-candidate builds as test software.
