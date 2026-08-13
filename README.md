@@ -15,7 +15,7 @@ This project avoids MCU firmware recompilation whenever practical. It prefers Kl
 | Feature | Status | Description |
 |---|---|---|
 | `safe_home` | v1.0.0 RC | Safer homing and Z-offset / Eddy recalibration behavior |
-| `config_optimization` | v1.0.0 RC | Validated `printer.cfg` and `Macro.cfg` tuning |
+| `config_optimization` | v1.0.0 RC | Validated `printer.cfg`, `Macro.cfg`, and `buffer_stepper.cfg` tuning |
 | `hardware_cooling` | Planned | Electrical enclosure / bed cooling configuration for modified hardware |
 | `plr` | Planned | Power-loss recovery redesign |
 | `restore` | Planned | Restore / rollback helpers |
@@ -38,6 +38,7 @@ Validated changes in this RC:
 - QGL `speed: 400 → 200`
 - QGL `retries: 15 → 5`
 - QGL `max_adjust: 20 → 5`
+- `buffer_stepper.cfg`: `velocity 150 → 80`, `accel 5000 → 1900`, `push_length 25 → 27`
 - adaptive mesh `PGP=0 → PGP=1`
 - randomized contact point + cross-hatch `CLEAN_NOZZLE`
 - `START_PRINT` acceleration limit `15000 / 7500`
@@ -98,6 +99,11 @@ From an extracted release directory:
 
 Rollback is feature-aware. Config Optimization must be rolled back before Safe Home if both are installed because Config Optimization depends on Safe Home.
 
+
+### Post-install Klipper restart notice
+
+The installer requests a Klipper service restart and verifies that the service reports `active`. If you did not observe a normal printer/Klipper restart cycle, or the printer state appears inconsistent, perform a manual **Firmware Restart** before continuing.
+
 ## Backup policy
 
 Every modified active file receives a persistent first-seen baseline:
@@ -125,7 +131,7 @@ This prevents one feature rollback from silently restoring another feature's old
 
 ## Release status
 
-`v1.0.0-rc2` combines the productionized Safe Home feature with the first release-candidate packaging of Config Optimization. Run a dry-run and review the generated diff before applying to any additional machine.
+`v1.0.0-rc3` builds on the RC2 hardware regression, completes Config Optimization ownership of `buffer_stepper.cfg`, and improves the post-install Klipper restart notice. Run a dry-run and review the generated diff before applying to any additional machine.
 
 ---
 

@@ -1,44 +1,27 @@
-# M_Bamboo_SV08Max_Mods — v1.0.0-rc2
+# M_Bamboo_SV08Max_Mods — v1.0.0-rc3
 
 [English](RELEASE_NOTES.md) | [简体中文](RELEASE_NOTES_CN.md)
 
-RC2 将最初只包含 Safe Home 的 production package 扩展为两个 feature-aware 模块。
+RC3 是在 RC2 已完成真实机器 regression 的基础上，对 package completeness 与 installer UX 的修正版。
 
-## Safe Home
+## Config Optimization 补全
 
-- 保留已经验证的 genuine HOME_Z recalibration path。
-- 保留 factory-bootstrap boundary：缺失 Eddy calibration 时直接报错，不回退到 `Zmax + 15` / 约 `Z520`。
-- 正式把 `[stepper_z] position_min: -1` 纳入 Safe Home ownership，因为它属于 Z safety dependency。
-- 继续保持原厂触摸屏 G28 ABI 兼容。
-- 不修改 `probe_eddy_current.py`，也不修改 MCU firmware。
+RC2 漏掉了此前已经确认过的 `buffer_stepper.cfg` 优化。RC3 正式把 `[buffer_stepper filament_buffer]` 纳入 Feature 2：
 
-## Config Optimization
+- `velocity 150 → 80`
+- `accel 5000 → 1900`
+- `push_length 25 → 27`
 
-新增 `config_optimization` feature：
+这些参数使用稳定的 `CONFIG_BUFFER_STEPPER` managed block，并参与 feature-scoped baseline / previous-version backup、幂等检查、raw diff、安装后 validation 与 rollback。
 
-- `max_velocity 700 → 400`
-- `max_accel 40000 → 15000`
-- X/Y TMC5160 `run_current 3.0 → 2.3`
-- QGL `speed 400 → 200`
-- QGL `retries 15 → 5`
-- QGL `max_adjust 20 → 5`
-- Adaptive Mesh `PGP=0 → PGP=1`
-- 随机 contact + cross-hatch `CLEAN_NOZZLE`
-- `START_PRINT` acceleration 与两阶段 current-Z Z-offset verification
+## Installer UX
 
-由于 START_PRINT 的 calibration 调用依赖 Safe Home 已验证的 current-Z 语义，因此 Config Optimization 明确依赖 Safe Home。
+安装成功后，installer 现在会明确说明已经请求 Klipper restart、service 当前报告为 `active`。同时，如果用户没有观察到正常的打印机 / Klipper restart cycle，或机器状态与预期不一致，会明确提示手动执行一次 **Firmware Restart**。
 
-## Installer
+## Gitee 文档修正
 
-- 支持 `safe_home`、`config_optimization` 和 `all`。
-- `all` 会按依赖顺序安装。
-- 多 feature 共享配置文件时，使用数量受控的 feature-scoped previous-version snapshot。
-- `.mb_baseline` 继续作为 first-seen baseline，不覆盖。
-- Bootstrap 下载完整 snapshot，校验 `SHA256SUMS`，运行 installer，并自动清理临时目录。
+README 中的 Gitee bootstrap 示例统一改为仓库实际使用的 `master` branch。
 
-## 文档
+## 延续 RC2 的 Safe Home 实机 regression
 
-- README 拆分为英文和简体中文页面，并可互相切换。
-- Release Notes 同样拆分为英文和简体中文页面。
-- 新增明确的 AI 辅助开发声明。
-- 新增 Config Optimization 文档。
+RC2 已在真实机器上通过 fresh/repeated G28、X/Y/Z 独立 homing、触摸屏风格 homing、raw X/Y `dZ=0`、HOME-FIRST Eddy recalibration、contact verification、无 `Z≈520 / Z≈500` runtime path、SAVE_CONFIG restart，以及 installer 重复 apply 幂等性测试。

@@ -41,6 +41,10 @@
     {
       "path": "features/config_optimization/config/printer_xy_current_y.block",
       "sha256": "ddb2ecf892972635a082fee3ee2a71663994136bf2c138520d6479fdc9d0fddf"
+    },
+    {
+      "path": "features/config_optimization/config/buffer_stepper_filament_buffer.block",
+      "sha256": "49c1ed3883d271ac7fd9ba5be6673687a5b4d3b83121e83c7aee00ba0fbdd686"
     }
   ]
 }

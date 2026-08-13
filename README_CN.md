@@ -15,7 +15,7 @@
 | Feature | 状态 | 说明 |
 |---|---|---|
 | `safe_home` | v1.0.0 RC | 更安全的归零、Z-offset 与 Eddy recalibration |
-| `config_optimization` | v1.0.0 RC | 已验证的 `printer.cfg` / `Macro.cfg` 参数与流程优化 |
+| `config_optimization` | v1.0.0 RC | 已验证的 `printer.cfg` / `Macro.cfg` / `buffer_stepper.cfg` 参数与流程优化 |
 | `hardware_cooling` | 计划中 | 针对硬件改装的电控仓 / 热床散热配置 |
 | `plr` | 计划中 | 断电续打重构 |
 | `restore` | 计划中 | 恢复与回滚辅助功能 |
@@ -38,6 +38,7 @@ Safe Home 负责 unknown-Z 安全抬升、受控 XY/Z homing、正常 Eddy recal
 - QGL `speed: 400 → 200`
 - QGL `retries: 15 → 5`
 - QGL `max_adjust: 20 → 5`
+- `buffer_stepper.cfg`: `velocity 150 → 80`, `accel 5000 → 1900`, `push_length 25 → 27`
 - Adaptive Mesh `PGP=0 → PGP=1`
 - 随机 contact point + cross-hatch 的 `CLEAN_NOZZLE`
 - `START_PRINT` acceleration limit `15000 / 7500`
@@ -96,6 +97,11 @@ Bootstrap 会把完整仓库 snapshot 下载到 installer 自己创建的 `/tmp/
 
 Rollback 是 feature-aware 的。如果同时安装了两个 feature，因为 Config Optimization 依赖 Safe Home，应先 rollback `config_optimization`，再 rollback `safe_home`。
 
+
+### 安装后的 Klipper restart 提示
+
+Installer 会请求 Klipper service restart 并确认 service 返回 `active`。如果你没有观察到正常的打印机 / Klipper 重启过程，或机器状态与预期不一致，请在继续使用前手动执行一次 **Firmware Restart**。
+
 ## 备份策略
 
 每个被修改文件保留一个 first-seen baseline：
@@ -123,7 +129,7 @@ printer.cfg.last_mb_config_optimization
 
 ## 当前版本状态
 
-`v1.0.0-rc2` 将已经 productionized 的 Safe Home 与 Config Optimization 的首个 release-candidate package 合并。建议在任何额外机器上 apply 前都先运行 dry-run 并检查 diff。
+`v1.0.0-rc3` 在 RC2 的实机回归基础上补全 `buffer_stepper.cfg` Config Optimization ownership，并改进安装后的 Klipper restart 提示。建议在任何额外机器上 apply 前都先运行 dry-run 并检查 diff。
 
 ---
 

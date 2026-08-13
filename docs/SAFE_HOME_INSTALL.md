@@ -123,7 +123,7 @@ wget -qO- https://raw.githubusercontent.com/kuratsunade/M_Bamboo_SV08Max_Mods/ma
   | sh -s -- safe_home --apply
 ```
 
-For stable public releases, pin `M_BAMBOO_REF` to a release tag instead of tracking `main`.
+For stable public releases, pin `M_BAMBOO_REF` to a release tag instead of tracking `master`.
 
 ---
 
@@ -152,6 +152,13 @@ Useful maintenance commands:
 Use `--no-restart` only for development/debugging; normal production apply restarts Klipper and verifies that the service returns active.
 
 ---
+
+
+### Restart confirmation / 重启确认
+
+After an apply, the installer requests a Klipper service restart and verifies that the service reports `active`. This status check does not prove that the user visibly observed a complete frontend/printer restart cycle. If no normal restart cycle was observed, or the printer state appears inconsistent, perform a manual **Firmware Restart** before continuing.
+
+Apply 后安装器会请求重启 Klipper service，并确认 service 返回 `active`。如果没有观察到正常的打印机 / Klipper 重启过程，或机器状态与预期不一致，请在继续使用前手动执行一次 **Firmware Restart**。
 
 ## 5. Dry-run / 预览
 

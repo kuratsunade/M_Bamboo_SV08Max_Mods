@@ -1,6 +1,6 @@
 # Config Optimization / 配置优化
 
-`config_optimization` manages validated changes in `printer.cfg` and `Macro.cfg`. It is intentionally separate from `safe_home` but depends on Safe Home for the `START_PRINT` current-Z calibration calls.
+`config_optimization` manages validated changes in `printer.cfg`, `Macro.cfg`, and `buffer_stepper.cfg`. It is intentionally separate from `safe_home` but depends on Safe Home for the `START_PRINT` current-Z calibration calls.
 
 ## Managed printer.cfg values
 
@@ -13,6 +13,16 @@
 | QGL `speed` | 400 | 200 |
 | QGL `retries` | 15 | 5 |
 | QGL `max_adjust` | 20 | 5 |
+
+## Managed buffer_stepper.cfg values
+
+| Setting | Stock | Managed |
+|---|---:|---:|
+| `velocity` | 150 | 80 |
+| `accel` | 5000 | 1900 |
+| `push_length` | 25 | 27 |
+
+These values are managed inside `[buffer_stepper filament_buffer]` using a dedicated `CONFIG_BUFFER_STEPPER` block.
 
 `[stepper_z] position_min=-1` is **not** owned here. It belongs to Safe Home because it is a Z safety dependency.
 
@@ -40,3 +50,7 @@ If Safe Home is not installed, installation is blocked. Use `./install.sh all` t
 ```
 
 Config files use feature-scoped bounded previous-version slots so this rollback can return to the state immediately before Config Optimization without removing Safe Home.
+
+## Post-install restart note
+
+The installer requests a Klipper service restart and verifies that the service reports `active`. If you do not observe a normal printer/Klipper restart cycle, or the printer state appears inconsistent, perform a manual **Firmware Restart** before continuing.

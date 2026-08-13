@@ -1,6 +1,6 @@
 {
   "project": "M_Bamboo_SV08Max_Mods",
-  "release": "1.0.0-rc2",
+  "release": "1.0.0-rc3",
   "features": {
     "safe_home": {
       "version": "1.0.0",
@@ -24,19 +24,19 @@
     },
     {
       "path": "README.md",
-      "sha256": "9510f79387d6d05932d611b309877c686b1daffcd9f6a0f665d534e009e2ccb9"
+      "sha256": "71397aac77a32c86bb01d2760653d154059f1aac8b37676b4abe1f060b7f356d"
     },
     {
       "path": "README_CN.md",
-      "sha256": "16a2b7532fc9dbc0de8fbe1c464968cf7512865ca92c4b5d44a60b847102b9ce"
+      "sha256": "e75dccc75ad44c99e0690326793bb334afb924730d0c23f456b26eb18d821e91"
     },
     {
       "path": "RELEASE_NOTES.md",
-      "sha256": "399b3e1de38619d9bd4f95f225f76086ae31c8b719988a785f5d715720f76863"
+      "sha256": "34e8617adec9bfeaf99c0c60ae00fd7425b4a6c6c95cafdb24df25e33d6d6c09"
     },
     {
       "path": "RELEASE_NOTES_CN.md",
-      "sha256": "5e3adbab04dfce6f586a4576020b47d1047e048e3044c0fef16d37bb0b939597"
+      "sha256": "dfb375b96219e3825def7803f51c4b9767952e15185a292399f98e084ef34a82"
     },
     {
       "path": "bootstrap.sh",
@@ -44,15 +44,19 @@
     },
     {
       "path": "docs/CONFIG_OPTIMIZATION.md",
-      "sha256": "ab8e32cdc47d8ef270edc98600ca7e3f541d05e2649f836e576ca18d92287c4a"
+      "sha256": "be3843655137c935b4d31d363d971b1649ebc79998ca8016e05747ccbbd3c4d2"
     },
     {
       "path": "docs/SAFE_HOME_INSTALL.md",
-      "sha256": "2357b00f8a76a281606e78e6db591be212a7258c8603882df1cb89196055b59d"
+      "sha256": "be99329c7a6040111efdca6b9ff2c0c5c213d52850a565b25a8d67db710d1cb3"
     },
     {
       "path": "docs/SAFE_HOME_REGRESSION.md",
       "sha256": "97ba57e055688bcf16cf2df754d35dde87900b3df033038b3217e9646ad19154"
+    },
+    {
+      "path": "features/config_optimization/config/buffer_stepper_filament_buffer.block",
+      "sha256": "49c1ed3883d271ac7fd9ba5be6673687a5b4d3b83121e83c7aee00ba0fbdd686"
     },
     {
       "path": "features/config_optimization/config/macro_bed_mesh_adaptive.block",
@@ -91,10 +95,6 @@
       "sha256": "ddb2ecf892972635a082fee3ee2a71663994136bf2c138520d6479fdc9d0fddf"
     },
     {
-      "path": "features/config_optimization/manifest.json",
-      "sha256": "09cfb686c56a779d69d9cf568392e814e91daccdf3940f44ac73896257cc88b2"
-    },
-    {
       "path": "features/safe_home/config/macro_g28.block",
       "sha256": "79f890dd5cfcf2eb5c75c5b36aa8c167d2196629cb4fc11e4d8a4afbd23d7fcf"
     },
@@ -111,10 +111,6 @@
       "sha256": "822710c89138366daf569e19dce97dec21812db5286e4c1e12431bfff4464173"
     },
     {
-      "path": "features/safe_home/manifest.json",
-      "sha256": "d6b7cdaf17dc46cb49a472df91e954cb2f18b54a5dc236df26b289485d5e95e0"
-    },
-    {
       "path": "features/safe_home/payload/M_Bamboo_Safe_Homing.py",
       "sha256": "c5da3d6e3ad29c51d564604b08d8e563331aaf17656f4b3b526fd2d2ed68e574"
     },
@@ -128,7 +124,7 @@
     },
     {
       "path": "installer.py",
-      "sha256": "2c837c49c01a17d9f4521334c2ff3a84e50c1aa484e8c7bf1b881d7e056bf385"
+      "sha256": "f43c5171b2cc97d15292ba641a58213266e8bf5b9bb81f2467a0815aa155eeea"
     }
   ]
 }

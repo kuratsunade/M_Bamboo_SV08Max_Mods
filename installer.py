@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""M_Bamboo_SV08Max_Mods feature installer (v1.0.0-rc2).
+"""M_Bamboo_SV08Max_Mods feature installer (v1.0.0-rc3).
 
 Features:
   safe_home
@@ -12,7 +12,7 @@ import argparse, difflib, hashlib, json, py_compile, re, shutil, subprocess, sys
 from pathlib import Path
 
 PROJECT = "M_Bamboo_SV08Max_Mods"
-PROJECT_RELEASE = "1.0.0-rc2"
+PROJECT_RELEASE = "1.0.0-rc3"
 NS = "M_Bamboo_SV08MAX_MOD"
 SAVE_MARKER = "#*# <---------------------- SAVE_CONFIG ---------------------->"
 
@@ -243,6 +243,15 @@ def patch_config_printer(root, text):
     return head.rstrip()+"\n\n"+tail.lstrip("\n") if tail else head.rstrip()+"\n"
 
 
+def patch_config_buffer(root, text):
+    block = load(root, "features/config_optimization/config/buffer_stepper_filament_buffer.block")
+    return patch_section(
+        text, "buffer_stepper filament_buffer",
+        lambda sec: replace_key_block(
+            sec, ["velocity", "accel", "push_length"], block,
+            "CONFIG_BUFFER_STEPPER", ("BUFFER_STEPPER",)))
+
+
 def patch_config_macro(root, text):
     # CLEAN_NOZZLE whole-section ownership.
     clean = load(root, "features/config_optimization/config/macro_clean_nozzle.block")
@@ -331,9 +340,9 @@ def main():
     if sum(bool(x) for x in (args.apply,args.rollback,args.restore_baseline))>1: raise SystemExit("Choose one write mode")
 
     root=Path(__file__).resolve().parent; cfg=Path(args.config_dir); extras=Path(args.extras_dir)
-    printer=cfg/"printer.cfg"; macro=cfg/"Macro.cfg"; ztarget=extras/"z_offset_calibration.py"; safe_target=extras/"M_Bamboo_Safe_Homing.py"
+    printer=cfg/"printer.cfg"; macro=cfg/"Macro.cfg"; buffer_cfg=cfg/"buffer_stepper.cfg"; ztarget=extras/"z_offset_calibration.py"; safe_target=extras/"M_Bamboo_Safe_Homing.py"
     zpayload=root/"features/safe_home/payload/z_offset_calibration.py"; safepayload=root/"features/safe_home/payload/M_Bamboo_Safe_Homing.py"
-    for p in (printer,macro,ztarget):
+    for p in (printer,macro,buffer_cfg,ztarget):
         if not p.is_file(): raise SystemExit("Missing required file: "+str(p))
 
     features=["safe_home","config_optimization"] if args.feature=="all" else [args.feature]
@@ -343,7 +352,7 @@ def main():
             raise SystemExit("Rollback blocked: config_optimization depends on safe_home. Roll back config_optimization first or use 'all --rollback'.")
         order=list(reversed(features)); restored=[]
         for f in order:
-            paths=[printer,macro,ztarget,safe_target] if f=="safe_home" else [printer,macro]
+            paths=[printer,macro,ztarget,safe_target] if f=="safe_home" else [printer,macro,buffer_cfg]
             restored += restore_feature(paths,f)
             if f=="safe_home":
                 slot=safe_target.with_name(safe_target.name+".last_mb_safe_home")
@@ -353,13 +362,13 @@ def main():
 
     if args.restore_baseline:
         restored=[]
-        for p in (printer,macro,ztarget,safe_target):
+        for p in (printer,macro,buffer_cfg,ztarget,safe_target):
             b=p.with_name(p.name+".mb_baseline")
             if b.exists(): atomic_write(p,b.read_bytes()); restored.append(str(p))
         if not args.no_restart: restart_klipper()
         print(green("Baseline restore complete")); [print("  ✓ "+x) for x in restored]; return
 
-    oldp=printer.read_text(encoding="utf-8"); oldm=macro.read_text(encoding="utf-8")
+    oldp=printer.read_text(encoding="utf-8"); oldm=macro.read_text(encoding="utf-8"); oldb=buffer_cfg.read_text(encoding="utf-8")
     safe_p,safe_m=oldp,oldm
     checks=0
 
@@ -376,17 +385,18 @@ def main():
     else:
         pts=eddy_calibrated(oldp)[1]; zsource="n/a"
 
-    newp,newm=safe_p,safe_m
+    newp,newm,newb=safe_p,safe_m,oldb
     if "config_optimization" in features:
         checks += verify_feature_manifest(root,"config_optimization")
         probe_printer=safe_p if "safe_home" in features else oldp
         if not safe_home_ready(probe_printer, ztarget, zpayload) and "safe_home" not in features:
             raise SystemExit("config_optimization requires Safe Home because START_PRINT uses its current-Z calibration semantics. Install safe_home first or use 'all'.")
-        newp=patch_config_printer(root,newp); newm=patch_config_macro(root,newm)
+        newp=patch_config_printer(root,newp); newm=patch_config_macro(root,newm); newb=patch_config_buffer(root,newb)
 
     if args.raw_diff:
         print("===== printer.cfg ====="); print(unified(printer,oldp,newp) or "(no changes)")
         print("===== Macro.cfg ====="); print(unified(macro,oldm,newm) or "(no changes)")
+        print("===== buffer_stepper.cfg ====="); print(unified(buffer_cfg,oldb,newb) or "(no changes)")
 
     if not args.apply:
         print_header(f"{PROJECT} · {PROJECT_RELEASE} · DRY RUN", "Feature-aware production preview / 模块化安装预览")
@@ -403,6 +413,7 @@ def main():
             print("      adaptive mesh         PGP 0→1")
             print("      START_PRINT           ACCEL 15000/7500 + two Safe Home Z-offset checks")
             print("      CLEAN_NOZZLE          randomized contact + cross-hatch wiping")
+            print("      buffer_stepper        velocity 150→80; accel 5000→1900; push_length 25→27")
         print(); print(yellow("DRY RUN — nothing written / 未写入文件")); return
 
     # Feature-scoped bounded snapshots. Do not refresh a rollback slot for a no-op apply.
@@ -411,12 +422,12 @@ def main():
     safe_config_changed = ("safe_home" in features and (safe_p != oldp or safe_m != oldm))
     safe_changed = safe_backend_changed or safe_config_changed
     config_base_p, config_base_m = safe_p, safe_m
-    config_changed = ("config_optimization" in features and (newp != config_base_p or newm != config_base_m))
+    config_changed = ("config_optimization" in features and (newp != config_base_p or newm != config_base_m or newb != oldb))
     if not safe_changed and not config_changed:
         print(green("Already at requested target state / 已是目标状态"))
         return
 
-    originals={p:p.read_bytes() for p in (printer,macro,ztarget,safe_target) if p.exists()}; safe_existed=safe_target.exists()
+    originals={p:p.read_bytes() for p in (printer,macro,buffer_cfg,ztarget,safe_target) if p.exists()}; safe_existed=safe_target.exists()
     try:
         if safe_changed:
             for p in (printer,macro,ztarget): feature_backup(p,"safe_home")
@@ -424,9 +435,9 @@ def main():
             atomic_write(safe_target,safepayload.read_bytes()); atomic_write(ztarget,zpayload.read_bytes())
             atomic_write(printer,safe_p.encode()); atomic_write(macro,safe_m.encode())
         if config_changed:
-            for p in (printer,macro): feature_backup(p,"config_optimization")
+            for p in (printer,macro,buffer_cfg): feature_backup(p,"config_optimization")
             # The config snapshot is taken after Safe Home, preserving the dependency boundary.
-            atomic_write(printer,newp.encode()); atomic_write(macro,newm.encode())
+            atomic_write(printer,newp.encode()); atomic_write(macro,newm.encode()); atomic_write(buffer_cfg,newb.encode())
 
         if safe_target.exists(): py_compile.compile(str(safe_target),doraise=True)
         if "safe_home" in features: py_compile.compile(str(ztarget),doraise=True)
@@ -437,6 +448,8 @@ def main():
         if "config_optimization" in features:
             for token in ("CONFIG_MOTION_LIMITS BEGIN","CONFIG_QGL_SPEED BEGIN","CONFIG_CLEAN_NOZZLE BEGIN","CONFIG_START_PRINT_PRE_QGL BEGIN"):
                 if token not in fp+fm: raise RuntimeError("Config optimization marker missing: "+token)
+            fb=buffer_cfg.read_text(encoding="utf-8")
+            if "CONFIG_BUFFER_STEPPER BEGIN" not in fb: raise RuntimeError("Config optimization marker missing: CONFIG_BUFFER_STEPPER")
         if not args.no_restart: restart_klipper()
     except Exception as exc:
         for p,data in originals.items(): atomic_write(p,data)
@@ -447,7 +460,16 @@ def main():
         raise SystemExit("Install failed; automatic rollback completed: "+str(exc))
 
     print(green("Installed successfully / 安装成功: "+", ".join(features)))
-    if not args.no_restart: print(green("Klipper service: active"))
+    if not args.no_restart:
+        print(green("Klipper restart requested; service currently reports: active"))
+        print()
+        print(yellow("IMPORTANT / 注意:"))
+        print("If you did not observe a normal printer/Klipper restart cycle, or the printer state")
+        print("appears inconsistent, please perform a manual Firmware Restart before continuing.")
+        print("如果没有观察到正常的打印机 / Klipper 重启过程，或机器状态与预期不一致，")
+        print("请在继续使用前手动执行一次 Firmware Restart。")
+    else:
+        print(yellow("Klipper restart skipped (--no-restart). Perform a Firmware Restart before normal use."))
 
 
 def section_span_text(text,name):
