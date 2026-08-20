@@ -1,0 +1,29 @@
+--- a/backend/probe.py
++++ b/backend/probe.py
+@@ -62,6 +62,10 @@
+                                desc=self.cmd_Z_OFFSET_APPLY_PROBE_help)
+     def _move(self, coord, speed):
+         self.printer.lookup_object('toolhead').manual_move(coord, speed)
++    def _validate_persistent_config(self, context):
++        validator = getattr(self.probe, 'validate_persistent_probe_config', None)
++        if validator is not None:
++            validator(context)
+     def get_status(self, eventtime):
+         return {'name': self.name,
+                 'last_query': self.last_state,
+@@ -83,6 +87,7 @@
+     def probe_calibrate_finalize(self, kin_pos):
+         if kin_pos is None:
+             return
++        self._validate_persistent_config('PROBE_CALIBRATE')
+         z_offset = self.probe_calibrate_z - kin_pos[2]
+         gcode = self.printer.lookup_object('gcode')
+         gcode.respond_info(
+@@ -157,6 +162,7 @@
+             max_value, min_value, range_value, avg_value, median, sigma))
+     cmd_Z_OFFSET_APPLY_PROBE_help = "Adjust the probe's z_offset"
+     def cmd_Z_OFFSET_APPLY_PROBE(self, gcmd):
++        self._validate_persistent_config('Z_OFFSET_APPLY_PROBE')
+         gcode_move = self.printer.lookup_object("gcode_move")
+         offset = gcode_move.get_status()['homing_origin'].z
+         if offset == 0:

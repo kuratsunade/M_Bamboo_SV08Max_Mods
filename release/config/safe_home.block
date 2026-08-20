@@ -1,0 +1,12 @@
+# >>> M_Bamboo_SV08MAX_MOD:SAFE_HOME BEGIN >>>
+# Version: 2
+# Maintainer: Master_Bamboo / 竹子
+# Purpose: Production Safe Home configuration used by RC4.
+# 用途：RC4 正式 Safe Home 配置。
+[M_Bamboo_Safe_Homing]
+home_xy_position: 271, 251
+xy_speed: 150
+z_hop: 5
+z_hop_speed: 10
+post_home_z: 10
+# <<< M_Bamboo_SV08MAX_MOD:SAFE_HOME END <<<

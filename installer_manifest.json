@@ -1,0 +1,67 @@
+{
+  "project": "M_Bamboo_SV08Max_Mods",
+  "release": "1.0.0-rc4",
+  "runtime_safety": "ES-R4-EC2-FS1.1",
+  "status": "release-candidate",
+  "machine": "Sovol SV08 Max 500x500",
+  "installer_schema": 2,
+  "features": [
+    "safe_home",
+    "config_optimization",
+    "eddy_safety",
+    "diagnostics",
+    "hardware_cooling",
+    "all"
+  ],
+  "config_policy": {
+    "persistent_backup": false,
+    "rollback_model": "inverse-managed-transformations",
+    "marker_namespace": "M_Bamboo_SV08MAX_MOD",
+    "save_config_tail": "never-modified"
+  },
+  "backend_policy": {
+    "target_dir": "/home/sovol/klipper/klippy/extras",
+    "backup_dir": "/home/sovol/klipper/klippy/extras/mb_bak",
+    "backup_manifest": "MANIFEST.json",
+    "backup_semantics": "original-pre-M_Bamboo-state-created-once-never-overwritten",
+    "legacy_baseline": "migration-input-only-exact-known-stock-sha256",
+    "temporary_transaction_prefix": "/tmp/M_Bamboo_SV08MAX.",
+    "transaction_scratch_cleanup": "cleanup-after-success-or-successful-auto-rollback; retain-and-report-if-rollback-fails",
+    "factory_mirror_recovery": "recognized-M_Bamboo-lineage-only-exact-known-stock-sha256"
+  },
+  "backend_targets": {
+    "ldc1612.py": "aa25833c27367905c68f27dfa6e4d669ddfe304bdaa23febee8287737f757e04",
+    "probe_eddy_current.py": "6b82c2a057746cd83ee46e02835e5b392e1ceba9c731d4984b98c1f75c63295e",
+    "probe.py": "227d0c6b8527ece1793caf969d5292646ec185f65ca1c679ccf4195515dd529a",
+    "M_Bamboo_Safe_Homing.py": "5f85a1a397413a7ab5da28d2b19b586a6d371b49a4793b80bc685d5adb0f9038",
+    "z_offset_calibration.py": "1089df132131010f774d40b331fef4ff6ba02252f4b55c107846c6cc0a7a75ce"
+  },
+  "reference_only": {
+    "homing.py": "e4a069d0fd4c91a150788b325af9c87d7d0c804ecf16f536e19e7e6b5a3bfedb"
+  },
+  "restore_templates": [
+    "release/restore_templates/stock_homing_override.cfg",
+    "release/restore_templates/stock_g28.cfg",
+    "release/restore_templates/stock_clean_nozzle.cfg"
+  ],
+  "known_pending_hardware_validation": [
+    "continued repeated natural FS1.1 fault soak across additional timing/fault combinations",
+    "long-term field confidence before stable promotion"
+  ],
+  "feature_ownership": {
+    "diagnostics": "release/config/diagnostics.block; exact XY_STRESS_* macro lineage; included by all",
+    "hardware_cooling": "optional; release/config/hardware_cooling_bed_fan.block; fan_speed=0.6; never included by all; requires physical modification",
+    "plr": "engineering pending; not installable in this candidate"
+  },
+  "release_scope": {
+    "plr": "deferred-not-included",
+    "generic_downgrade": "not-implemented-use-full-restore-then-target-release-installer",
+    "diagnostics": "formal-feature-included-by-all-no-auto-execution",
+    "hardware_cooling": "optional-explicit-only-never-included-by-all-requires-physical-modification"
+  },
+  "hardware_validation_evidence": {
+    "healthy_path": "hardware-validated",
+    "natural_raw34_recovery": "one-event-end-to-end-hardware-validated-2026-08-20",
+    "real_machine_first_takeover_migration": "factory-mirror-recovery-validated-2026-08-20"
+  }
+}

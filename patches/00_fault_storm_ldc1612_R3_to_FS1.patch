@@ -1,0 +1,57 @@
+--- a/backend/ldc1612.py
++++ b/backend/ldc1612.py
+@@ -173,6 +173,9 @@
+         # calibration ineligible again.
+         self._transport_trusted_through_seq = 0
+         self._transport_fault_handlers = []
++        self._bulk_quarantine_count = 0
++        self._bulk_quarantine_in_progress = False
++        self._bulk_quarantine_last_reason = ''
+         # Process messages in batches
+         self.batch_bulk = bulk_sensor.BatchBulkHelper(
+             self.printer, self._process_batch,
+@@ -214,6 +217,34 @@
+                            minclock=minclock)
+     def add_client(self, cb):
+         self.batch_bulk.add_client(cb)
++    def remove_client(self, cb):
++        # BatchBulkHelper only removes a client when that callback is invoked
++        # by a future successful batch.  A faulted I2C stream may never
++        # produce that batch, so Eddy sessions need deterministic removal.
++        clients = self.batch_bulk.client_cbs
++        if cb in clients:
++            clients.remove(cb)
++        if self.batch_bulk.is_started and not clients:
++            self.batch_bulk._stop()
++    def quarantine_transport_stream(self, reason='TRANSPORT_FAULT'):
++        # Hard-stop an active periodic LDC stream after a confirmed transport
++        # fault.  This prevents a stuck query loop from generating an
++        # unbounded sequence of new I2C reports after the owning G-code has
++        # already aborted.  BatchBulkHelper has no public cancel API in this
++        # Sovol/Official lineage, so keep the compatibility shim local here.
++        if self._bulk_quarantine_in_progress or not self.batch_bulk.is_started:
++            return False
++        self._bulk_quarantine_in_progress = True
++        try:
++            self._bulk_quarantine_last_reason = str(reason)
++            self.batch_bulk._stop()
++            self._bulk_quarantine_count += 1
++            logging.warning(
++                "LDC1612 transport stream quarantined after fault: %s",
++                reason)
++            return True
++        finally:
++            self._bulk_quarantine_in_progress = False
+     def get_transport_fault_seq(self):
+         return self._transport_fault_seq
+     def get_transport_trusted_through_seq(self):
+@@ -398,6 +429,9 @@
+             'transport_fault_seq': self._transport_fault_seq,
+             'transport_trusted_through_seq': (
+                 self._transport_trusted_through_seq),
++            'bulk_quarantine_count': self._bulk_quarantine_count,
++            'bulk_quarantine_active': bool(self._bulk_quarantine_in_progress),
++            'bulk_quarantine_last_reason': self._bulk_quarantine_last_reason,
+         }
+         status.update(self._last_i2c_diagnostic)
+         return status

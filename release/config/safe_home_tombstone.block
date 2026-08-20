@@ -1,0 +1,7 @@
+# >>> M_Bamboo_SV08MAX_MOD:SAFE_HOME_LEGACY_HOMING_OVERRIDE BEGIN >>>
+# Version: 2
+# Maintainer: Master_Bamboo / 竹子
+# Purpose: Stock [homing_override] removed, not commented out, so Safe Home owns homing.
+# Restore source: release/restore_templates/stock_homing_override.cfg
+# Original content is reconstructed by installer --restore.
+# <<< M_Bamboo_SV08MAX_MOD:SAFE_HOME_LEGACY_HOMING_OVERRIDE END <<<

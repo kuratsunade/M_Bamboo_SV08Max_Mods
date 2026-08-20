@@ -1,0 +1,130 @@
+# >>> M_Bamboo_SV08MAX_MOD:DIAGNOSTICS_XY_STRESS BEGIN >>>
+# Version: 1
+# Maintainer: Master_Bamboo / 竹子
+# Source: validated Macro_H2B_DEPLOY diagnostic lineage
+[gcode_macro XY_STRESS_BASELINE]
+description: Record XY position/TMC baseline before stress test
+gcode:
+    RESPOND MSG="========== XY STRESS BASELINE / XY压力测试基线 =========="
+
+    # Home first so both measurements use the same mechanical reference.
+    # 先回零，使测试前后都基于同一个机械参考位置。
+    G28
+
+    RESPOND MSG="--- GET_POSITION BEFORE / 测试前位置 ---"
+    GET_POSITION
+
+    RESPOND MSG="--- TMC X BEFORE / 测试前X驱动状态 ---"
+    DUMP_TMC STEPPER=stepper_x
+
+    RESPOND MSG="--- TMC Y BEFORE / 测试前Y驱动状态 ---"
+    DUMP_TMC STEPPER=stepper_y
+
+    RESPOND MSG="========== BASELINE COMPLETE / 基线记录完成 =========="
+
+
+[gcode_macro XY_STRESS_RUN]
+description: CoreXY 400mm/s 15000mm/s2 stress test
+gcode:
+    RESPOND MSG="========== XY STRESS RUN START / XY压力测试开始 =========="
+
+    # Test envelope:
+    # Velocity = 400 mm/s
+    # Acceleration = 15000 mm/s^2
+    #
+    # 测试运动范围：
+    # 速度 = 400 mm/s
+    # 加速度 = 15000 mm/s^2
+    SET_VELOCITY_LIMIT VELOCITY=400 ACCEL=15000
+
+    G90
+
+    # Keep nozzle safely above the bed.
+    # 将喷头抬高，避免测试运动接近热床。
+    G1 Z20 F1200
+
+    # Move to an interior starting point first.
+    # 先移动到内部安全位置。
+    G1 X50 Y50 F12000
+
+    # --------------------------------------------------------------
+    # Large diagonals
+    # 大范围对角线运动
+    #
+    # These load both CoreXY motors simultaneously.
+    # 对 CoreXY 两个主电机同时施加较高负载。
+    # --------------------------------------------------------------
+    G1 X450 Y450 F24000
+    G1 X50  Y450 F24000
+    G1 X450 Y50  F24000
+    G1 X50  Y50  F24000
+
+    G1 X450 Y450 F24000
+    G1 X50  Y450 F24000
+    G1 X450 Y50  F24000
+    G1 X50  Y50  F24000
+
+    G1 X450 Y450 F24000
+    G1 X50  Y450 F24000
+    G1 X450 Y50  F24000
+    G1 X50  Y50  F24000
+
+    # --------------------------------------------------------------
+    # Long X/Y reversals
+    # 长距离 X/Y 快速反向
+    # --------------------------------------------------------------
+    G1 X450 Y250 F24000
+    G1 X50  Y250 F24000
+    G1 X450 Y250 F24000
+    G1 X50  Y250 F24000
+
+    G1 X250 Y450 F24000
+    G1 X250 Y50  F24000
+    G1 X250 Y450 F24000
+    G1 X250 Y50  F24000
+
+    # --------------------------------------------------------------
+    # Shorter rapid direction changes
+    # 较短距离快速换向
+    #
+    # Helps expose marginal torque/current settings.
+    # 更容易暴露电流过低或扭矩余量不足。
+    # --------------------------------------------------------------
+    G1 X100 Y100 F24000
+    G1 X400 Y400 F24000
+    G1 X100 Y400 F24000
+    G1 X400 Y100 F24000
+
+    G1 X100 Y100 F24000
+    G1 X400 Y400 F24000
+    G1 X100 Y400 F24000
+    G1 X400 Y100 F24000
+
+    G1 X250 Y250 F24000
+
+    M400
+
+    RESPOND MSG="========== XY STRESS RUN COMPLETE / XY压力测试完成 =========="
+    RESPOND MSG="Now run XY_STRESS_CHECK. Do NOT restart Klipper. / 现在运行 XY_STRESS_CHECK，请勿重启 Klipper。"
+
+
+[gcode_macro XY_STRESS_CHECK]
+description: Re-home and record XY position/TMC state after stress test
+gcode:
+    RESPOND MSG="========== XY STRESS CHECK / XY压力测试结果 =========="
+
+    # Re-home after the stress run.
+    # 压力测试后重新回零。
+    G28
+
+    RESPOND MSG="--- GET_POSITION AFTER / 测试后位置 ---"
+    GET_POSITION
+
+    RESPOND MSG="--- TMC X AFTER / 测试后X驱动状态 ---"
+    DUMP_TMC STEPPER=stepper_x
+
+    RESPOND MSG="--- TMC Y AFTER / 测试后Y驱动状态 ---"
+    DUMP_TMC STEPPER=stepper_y
+
+    RESPOND MSG="========== CHECK COMPLETE / 测试结果记录完成 =========="
+# <<< M_Bamboo_SV08MAX_MOD:DIAGNOSTICS_XY_STRESS END <<<

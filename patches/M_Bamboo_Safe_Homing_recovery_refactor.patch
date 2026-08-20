@@ -1,0 +1,118 @@
+--- a/backend/M_Bamboo_Safe_Homing.py
++++ b/backend/M_Bamboo_Safe_Homing.py
+@@ -59,7 +59,7 @@
+             % (''.join(axes), after[2] - before[2],
+                after[0], after[1], after[2]))
+ 
+-    def _safe_z_hop(self, gcmd):
++    def _establish_z_clearance(self, gcmd):
+         if self.z_hop <= 0.:
+             return
+ 
+@@ -90,18 +90,36 @@
+                 "MBSH: known-Z clearance %.3f -> %.3f"
+                 % (old_z, self.z_hop))
+ 
+-    def _home_z(self, gcmd):
++    def _home_z_after_clearance(self, gcmd):
+         toolhead = self._toolhead()
+         homed = self._status().get('homed_axes', '')
+         if 'x' not in homed or 'y' not in homed:
+             raise gcmd.error("M_Bamboo Safe Homing: X and Y must be homed before Z")
+ 
++        # Healthy-path transport readiness gate.  It performs only no-motion
++        # LDC identity reads and bounded settle/retry; if transport is unstable
++        # the Z-home action is rejected before any bed-facing Z movement.
++        probe_obj = self.printer.lookup_object('probe', None)
++        if (probe_obj is not None
++                and hasattr(probe_obj, 'preflight_safe_home_z')):
++            probe_obj.preflight_safe_home_z()
++
+         before = toolhead.get_position()
+         toolhead.manual_move(self.home_xy, self.xy_speed)
+         gcmd.respond_info(
+             "MBSH: Z-home XY position (%.3f, %.3f)"
+             % (self.home_xy[0], self.home_xy[1]))
+ 
++        # If Eddy transport previously faulted, only an explicit successful
++        # no-motion recovery check may arm this one fresh Z-home attempt.
++        if (probe_obj is not None
++                and hasattr(probe_obj, 'prepare_safe_home_z_recovery')):
++            armed = probe_obj.prepare_safe_home_z_recovery()
++            if armed:
++                gcmd.respond_info(
++                    'MBSH: Eddy transport recovery armed; attempting one '
++                    'fresh Z home')
++
+         self._raw_home(['Z'], gcmd)
+ 
+         pos = toolhead.get_position()
+@@ -114,43 +132,59 @@
+             "MBSH: Z home complete; post-home Z=%.3f, XY delta=(%.3f, %.3f)"
+             % (after[2], after[0] - before[0], after[1] - before[1]))
+ 
++    def _safe_z_hop(self, gcmd):
++        # Deprecated internal alias retained for one compatibility cycle.
++        return self._establish_z_clearance(gcmd)
++
++    def establish_real_z_reference(self, gcmd, home_xy_if_needed=False,
++                                   force_xy_home=False):
++        # Atomic recovery-safe sequence: clearance is established exactly once
++        # before any XY motion while Z is untrusted.
++        self._establish_z_clearance(gcmd)
++        homed = self._status().get('homed_axes', '')
++        need_x = force_xy_home or (home_xy_if_needed and 'x' not in homed)
++        need_y = force_xy_home or (home_xy_if_needed and 'y' not in homed)
++        if need_x:
++            self._raw_home(['X'], gcmd)
++        if need_y:
++            self._raw_home(['Y'], gcmd)
++        self._home_z_after_clearance(gcmd)
++
+     def prepare_xy_for_calibration(self, gcmd):
+         # One safe-hop transaction, then raw XY homing.
+         # 单次安全抬升后执行原始 XY 回零，供 Eddy recalibration 的 HOME-FIRST 路径复用。
+-        self._safe_z_hop(gcmd)
++        self._establish_z_clearance(gcmd)
+         self._raw_home(['X'], gcmd)
+         self._raw_home(['Y'], gcmd)
+ 
+     def cmd_HOME_X(self, gcmd):
+         self._respond_state(gcmd, "HOME_X start")
+-        self._safe_z_hop(gcmd)
++        self._establish_z_clearance(gcmd)
+         self._raw_home(['X'], gcmd)
+         self._respond_state(gcmd, "HOME_X done")
+ 
+     def cmd_HOME_Y(self, gcmd):
+         self._respond_state(gcmd, "HOME_Y start")
+-        self._safe_z_hop(gcmd)
++        self._establish_z_clearance(gcmd)
+         self._raw_home(['Y'], gcmd)
+         self._respond_state(gcmd, "HOME_Y done")
+ 
+     def cmd_HOME_XY(self, gcmd):
+         self._respond_state(gcmd, "HOME_XY start")
+-        self._safe_z_hop(gcmd)
++        self._establish_z_clearance(gcmd)
+         self._raw_home(['X'], gcmd)
+         self._raw_home(['Y'], gcmd)
+         self._respond_state(gcmd, "HOME_XY done")
+ 
+     def cmd_HOME_Z(self, gcmd):
+         self._respond_state(gcmd, "HOME_Z start")
+-        self._home_z(gcmd)
++        self.establish_real_z_reference(gcmd, home_xy_if_needed=False)
+         self._respond_state(gcmd, "HOME_Z done")
+ 
+     def cmd_HOME_ALL(self, gcmd):
+         self._respond_state(gcmd, "HOME_ALL start")
+-        self._safe_z_hop(gcmd)
+-        self._raw_home(['X'], gcmd)
+-        self._raw_home(['Y'], gcmd)
+-        self._home_z(gcmd)
++        self.establish_real_z_reference(
++            gcmd, home_xy_if_needed=True, force_xy_home=True)
+         self._respond_state(gcmd, "HOME_ALL done")
+ 
+ 

@@ -1,0 +1,168 @@
+--- a/backend/probe_eddy_current.py
++++ b/backend/probe_eddy_current.py
+@@ -128,8 +128,13 @@
+         toolhead.dwell(1.0)
+         toolhead.wait_moves()
+         self.drift_comp.note_z_calibration_finish()
+-        # Finish data collection
++        # Finish data collection deterministically.  Do not wait for a
++        # future successful batch to unregister this client.
+         is_finished = True
++        sensor = self.printer.lookup_object(self.name)
++        remover = getattr(sensor, 'remove_client', None)
++        if remover is not None:
++            remover(handle_batch)
+         # Correlate query responses
+         cal = {}
+         step = 0
+@@ -245,7 +250,8 @@
+         # Start samples
+         if not self._calibration.is_calibrated():
+             self.gcode.respond_info("Must calibrate probe_eddy_current first")
+-        sensor_helper.add_client(self._add_measurement)
++        self._client_cb = self._add_measurement
++        sensor_helper.add_client(self._client_cb)
+     def _add_measurement(self, msg):
+         if self._need_stop:
+             del self._samples[:]
+@@ -254,7 +260,12 @@
+         self._check_samples()
+         return True
+     def finish(self):
++        if self._need_stop:
++            return
+         self._need_stop = True
++        remover = getattr(self._sensor_helper, 'remove_client', None)
++        if remover is not None:
++            remover(self._client_cb)
+     def _await_samples(self):
+         # Make sure enough samples have been collected
+         reactor = self._printer.get_reactor()
+@@ -406,6 +417,7 @@
+         # health so stale Sovol err_code/i2c_err_flag telemetry is not mistaken
+         # for a live failure after recovery.
+         self._transport_fault_count = 0
++        self._fault_repeat_suppressed_count = 0
+         self._transport_fault_type_counts = {}
+         self._transport_fault_context_counts = {}
+         self._last_counted_transport_fault_seq = 0
+@@ -543,6 +555,10 @@
+                        % (self._preflight_context or 'UNKNOWN', reason))
+             return
+         tx = self._active_transaction
++        quarantiner = getattr(
++            self._sensor_helper, 'quarantine_transport_stream', None)
++        if quarantiner is not None:
++            quarantiner(reason)
+         recovery_failed = bool(tx is not None and tx.get('recovery_attempt'))
+         if recovery_failed:
+             self._transport_state = 'HARD_COMM_FAULT'
+@@ -594,6 +610,10 @@
+                        'motion and retrying readiness check'
+                        % (self._preflight_context or 'UNKNOWN', reason))
+             return True
++        quarantiner = getattr(
++            self._sensor_helper, 'quarantine_transport_stream', None)
++        if quarantiner is not None:
++            quarantiner(reason)
+         self._transport_state = 'TRANSPORT_FAULT'
+         self._recovery_authorized = False
+         self._safe_home_recovery_token = False
+@@ -1087,19 +1107,28 @@
+                     0, "%s FAULT UPGRADED %s(%s) -> %s(%s)"
+                     % (self._tx_prefix(), old_state, old_reason,
+                        self._fault_state, self._fault_reason))
+-        self._diag(
+-            0, "%s FAULT state=%s reason=%s %s"
+-            % (self._tx_prefix(), self._fault_state, self._fault_reason,
+-               self._raw_diag_text()))
++        repeated_same_rank = (
++            state == 'HARD_COMM_FAULT'
++            and self._fault_state == 'HARD_COMM_FAULT'
++            and self._first_fault_state is not None
++            and self._transport_fault_count > 1)
++        if repeated_same_rank:
++            self._fault_repeat_suppressed_count += 1
++        else:
++            self._diag(
++                0, "%s FAULT state=%s reason=%s %s"
++                % (self._tx_prefix(), self._fault_state, self._fault_reason,
++                   self._raw_diag_text()))
+         if state == 'PROBE_NO_TRIGGER':
+             self._diag(
+                 0, "%s NO_TRIGGER does not by itself prove an Eddy hardware "
+                 "failure; severe gantry misalignment or a probe/sensor "
+                 "fault are both possible." % (self._tx_prefix(),))
+         if state == 'HARD_COMM_FAULT':
+-            self._diag(0, '%s TRANSPORT state=%s. %s' % (
+-                self._tx_prefix(), self._transport_state,
+-                self._recovery_guidance()))
++            if not repeated_same_rank:
++                self._diag(0, '%s TRANSPORT state=%s. %s' % (
++                    self._tx_prefix(), self._transport_state,
++                    self._recovery_guidance()))
+         else:
+             self._diag(
+                 0, "%s further Eddy Z operations BLOCKED for this Klipper "
+@@ -1150,10 +1179,12 @@
+             'restart_required': self._restart_required,
+             'z_recovery_required': self._z_recovery_required,
+             'transport_fault_count': self._transport_fault_count,
++            'fault_repeat_suppressed_count': (
++                self._fault_repeat_suppressed_count),
+             'preflight_transient_recovered_count': (
+                 self._preflight_transient_recovered_count),
+             'eddy_diagnostic_level': self._diagnostic_level,
+-            'eddy_safety_version': 'ES-R4-EC2',
++            'eddy_safety_version': 'ES-R4-EC2-FS1',
+         }
+ 
+     def get_diagnostic_report(self):
+@@ -1164,7 +1195,7 @@
+         last = self._last_probe
+         lines = [
+             '=== M_Bamboo Eddy Status ===',
+-            'Safety version: ES-R4-EC2',
++            'Safety version: ES-R4-EC2-FS1',
+             'State: %s' % (self._fault_state or 'HEALTHY'),
+             'Fault latched: %s' % ('Yes' if self._fault_state else 'No'),
+             'Fault reason: %s' % (self._fault_reason or 'None'),
+@@ -1180,6 +1211,11 @@
+             'Z recovery required: %s' % (
+                 'Yes' if self._z_recovery_required else 'No'),
+             'Transport faults this session: %d' % (self._transport_fault_count,),
++            'Repeated fault messages suppressed: %d' % (
++                self._fault_repeat_suppressed_count,),
++            'Forced LDC stream quarantines: %s; last reason: %s' % (
++                raw.get('bulk_quarantine_count', 0),
++                raw.get('bulk_quarantine_last_reason') or 'None'),
+             'Transport fault types: %s' % (
+                 self._format_counts(self._transport_fault_type_counts),),
+             'Transport fault contexts: %s' % (
+@@ -1570,7 +1606,7 @@
+     def _handle_ready(self):
+         allowance = self.mcu_probe._probe_below_trigger_allowance
+         self.gcode.respond_info(
+-            "MBEDDY: M_Bamboo Eddy Safety ES-R4-EC2 initialized "
++            "MBEDDY: M_Bamboo Eddy Safety ES-R4-EC2-FS1 initialized "
+             "probe_below_trigger_allowance=%s diagnostic_level=%d"
+             % (('%.3f' % allowance) if allowance is not None else 'stock',
+                self.mcu_probe._diagnostic_level))
+@@ -1657,10 +1693,13 @@
+             "RUN_PROBE_VIR_CONTACT", "RUN_PROBE_VIR_CONTACT",
+             {'PROBE_SPEED': self.vir_contact_speed,
+              'NON_CONTACT_PROBE': 0})
+-        self.contact_probe.start_probe_session(pgcmd)
+-        self.contact_probe.run_probe(pgcmd)
+-        pos = self.contact_probe.pull_probed_results()[0]
+-        self.contact_probe.end_probe_session()
++        session = self.contact_probe.start_probe_session(pgcmd)
++        try:
++            session.run_probe(pgcmd)
++            pos = session.pull_probed_results()[0]
++        finally:
++            if getattr(session, 'multi_probe_pending', False):
++                session.end_probe_session()
+         gcmd.respond_info("Result is z=%.6f" % (pos[2],))
+         return pos
+     def cmd_RUN_PROBE_VIR_CONTACT(self, gcmd):

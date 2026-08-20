@@ -1,0 +1,8 @@
+# >>> M_Bamboo_SV08MAX_MOD:SAFE_HOME_Z_MIN BEGIN >>>
+# Version: 2
+# Maintainer: Master_Bamboo / 竹子
+# Purpose: Bound negative Z travel used by Safe Home and contact verification.
+# Stock value: position_min=-10
+# Managed value: position_min=-1
+position_min: -1
+# <<< M_Bamboo_SV08MAX_MOD:SAFE_HOME_Z_MIN END <<<

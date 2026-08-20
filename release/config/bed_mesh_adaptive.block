@@ -1,0 +1,5 @@
+    # >>> M_Bamboo_SV08MAX_MOD:CONFIG_BED_MESH_ADAPTIVE BEGIN >>>
+    # Version: 2
+    # Maintainer: Master_Bamboo / 竹子
+    BED_MESH_CALIBRATE_BASE ADAPTIVE=1 PGP=1 METHOD=rapid_scan
+    # <<< M_Bamboo_SV08MAX_MOD:CONFIG_BED_MESH_ADAPTIVE END <<<

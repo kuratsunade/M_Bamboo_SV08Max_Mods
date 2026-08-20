@@ -1,0 +1,27 @@
+--- a/backend/probe_eddy_current.py
++++ b/backend/probe_eddy_current.py
+@@ -1184,7 +1184,7 @@
+             'preflight_transient_recovered_count': (
+                 self._preflight_transient_recovered_count),
+             'eddy_diagnostic_level': self._diagnostic_level,
+-            'eddy_safety_version': 'ES-R4-EC2-FS1',
++            'eddy_safety_version': 'ES-R4-EC2-FS1.1',
+         }
+ 
+     def get_diagnostic_report(self):
+@@ -1193,9 +1193,14 @@
+         status = toolhead.get_status(eventtime)
+         pos = toolhead.get_position()
+         last = self._last_probe
++        # Snapshot low-level diagnostics once for a self-contained,
++        # side-effect-free status report.  FS1 accidentally referenced
++        # an undefined local `raw` here, which made this diagnostic
++        # command raise NameError and force Klipper into shutdown.
++        raw = self._raw_diag()
+         lines = [
+             '=== M_Bamboo Eddy Status ===',
+-            'Safety version: ES-R4-EC2-FS1',
++            'Safety version: ES-R4-EC2-FS1.1',
+             'State: %s' % (self._fault_state or 'HEALTHY'),
+             'Fault latched: %s' % ('Yes' if self._fault_state else 'No'),
+             'Fault reason: %s' % (self._fault_reason or 'None'),

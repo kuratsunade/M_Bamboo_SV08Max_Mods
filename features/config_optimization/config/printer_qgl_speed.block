@@ -1,7 +1,0 @@
-# >>> M_Bamboo_SV08MAX_MOD:CONFIG_QGL_SPEED BEGIN >>>
-# Version: 1
-# Maintainer: Master_Bamboo / 竹子
-# Stock value: speed=400
-# Managed value: speed=200
-speed: 200
-# <<< M_Bamboo_SV08MAX_MOD:CONFIG_QGL_SPEED END <<<

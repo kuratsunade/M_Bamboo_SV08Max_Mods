@@ -1,9 +1,0 @@
-# >>> M_Bamboo_SV08MAX_MOD:CONFIG_BUFFER_STEPPER BEGIN >>>
-# Version: 1
-# Maintainer: Master_Bamboo / 竹子
-# Stock values: velocity=150, accel=5000, push_length=25
-# Managed values: velocity=80, accel=1900, push_length=27
-velocity: 80
-accel: 1900
-push_length: 27
-# <<< M_Bamboo_SV08MAX_MOD:CONFIG_BUFFER_STEPPER END <<<

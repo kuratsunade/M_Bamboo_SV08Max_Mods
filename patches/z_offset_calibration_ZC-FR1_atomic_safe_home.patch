@@ -1,0 +1,83 @@
+--- a/backend/z_offset_calibration.py
++++ b/backend/z_offset_calibration.py
+@@ -93,6 +93,22 @@
+             # One switch for all added diagnostics. / 所有新增诊断统一开关。
+             if zdbg:
+                 gcmd.respond_info("ZDBG: " + msg)
++
++        def invalidate_z_trust_on_error():
++            kin = toolhead.get_kinematics()
++            if hasattr(kin, 'note_z_not_homed'):
++                kin.note_z_not_homed()
++                dbg("ERROR recovery: Z trust invalidated")
++
++        def guarded_z_sensor_call(func, *args):
++            try:
++                return func(*args)
++            except self.printer.command_error:
++                # A safety preflight may abort before HomingMove starts.  In
++                # that case homing.py never gets a chance to revoke a temporary
++                # logical Z rebase performed by this calibration routine.
++                invalidate_z_trust_on_error()
++                raise
+         try:
+             _non_contact_probe = self.printer.lookup_object(self.non_contact_probe_name)
+             _contact_probe = self.printer.lookup_object(self.contact_probe_name)
+@@ -159,20 +175,16 @@
+ 
+         if home_first:
+             if safe_homing is None or not hasattr(
+-                    safe_homing, 'prepare_xy_for_calibration'):
++                    safe_homing, 'establish_real_z_reference'):
+                 raise gcmd.error(
+                     'ZoffsetCalibration: M_Bamboo Safe Homing backend unavailable.')
+-            # Home XY only when needed, then establish a real Z reference using
+-            # the already-calibrated Eddy virtual endstop.
+-            # 仅在需要时回零 XY，然后利用已有 Eddy 曲线建立真实 Z 参考。
+-            if ('x' not in status['homed_axes'] or
+-                    'y' not in status['homed_axes']):
+-                dbg("HOME-FIRST XY preparation start")
+-                safe_homing.prepare_xy_for_calibration(gcmd)
+-                dbg("HOME-FIRST XY preparation done")
+-            dbg("HOME-FIRST real Z home start")
+-            safe_homing.cmd_HOME_Z(gcmd)
+-            dbg("HOME-FIRST real Z home done")
++            # Atomic Safe Home orchestration owns clearance, any needed XY home,
++            # XY positioning, and real Z homing. This prevents a double-hop and
++            # guarantees no XY motion occurs first while Z is untrusted.
++            dbg("HOME-FIRST atomic real-Z reference start")
++            safe_homing.establish_real_z_reference(
++                gcmd, home_xy_if_needed=True)
++            dbg("HOME-FIRST atomic real-Z reference done")
+             # Continue through the verified current-Z calibration path.
+             # 后续进入已验证的 current-Z 校准路径。
+             use_current_z = True
+@@ -320,7 +332,7 @@
+         # Contact probe calibration
+         gcmd.respond_info("ZoffsetCalibration: Toolhead probing ...")
+         dbg("CONTACT start logical_Z=%.6f" % (self.toolhead.get_position()[2],))
+-        zendstop_p = _contact_probe.run_contact_probe(gcmd)
++        zendstop_p = guarded_z_sensor_call(_contact_probe.run_contact_probe, gcmd)
+         dbg("CONTACT trigger raw_Z=%.6f current_Z=%.6f"
+             % (zendstop_p[2], self.toolhead.get_position()[2]))
+ 
+@@ -366,7 +378,7 @@
+             gcmd.respond_info("ZoffsetCalibration: Toolhead verifying the difference between before and after %d/10." % (reprobe_cnt))
+             dbg("VERIFY #%d start_Z=%.6f"
+                 % (reprobe_cnt, self.toolhead.get_position()[2]))
+-            zendstop_p1 = _contact_probe.run_contact_probe(gcmd)
++            zendstop_p1 = guarded_z_sensor_call(_contact_probe.run_contact_probe, gcmd)
+             if use_current_z and \
+                     zendstop_p1[2] <= z_min_position + contact_endpoint_margin:
+                 raise gcmd.error(
+@@ -383,7 +395,9 @@
+         # Rejoin Sovol's original eddy non-contact calibration flow.
+         # 从这里重新进入 Sovol 原始 Eddy 非接触校准流程。
+         dbg("EDDY calibration start after verified contact")
+-        _non_contact_probe.run_non_contact_calibrate(gcmd, self.internal_endstop_offset, self.z_hop_speed)
++        guarded_z_sensor_call(_non_contact_probe.run_non_contact_calibrate,
++                              gcmd, self.internal_endstop_offset,
++                              self.z_hop_speed)
+         dbg("DONE post_calibration_toolhead_Z=%.6f (NOT contact height)"
+             % (self.toolhead.get_position()[2],))
+     def set_z_offset(self, offset):

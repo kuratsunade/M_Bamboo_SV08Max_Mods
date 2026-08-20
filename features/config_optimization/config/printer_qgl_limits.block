@@ -1,8 +1,0 @@
-# >>> M_Bamboo_SV08MAX_MOD:CONFIG_QGL_LIMITS BEGIN >>>
-# Version: 1
-# Maintainer: Master_Bamboo / 竹子
-# Stock values: retries=15, max_adjust=20
-# Managed values: retries=5, max_adjust=5
-retries: 5
-max_adjust: 5
-# <<< M_Bamboo_SV08MAX_MOD:CONFIG_QGL_LIMITS END <<<

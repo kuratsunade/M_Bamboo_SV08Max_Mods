@@ -1,0 +1,5 @@
+    # >>> M_Bamboo_SV08MAX_MOD:CONFIG_START_PRINT_POST_MESH BEGIN >>>
+    # Version: ZC-FR1
+    # Maintainer: Master_Bamboo / 竹子
+    Z_OFFSET_CALIBRATION METHOD=force_overlay BED_TEMP={printer.heater_bed.target} USE_CURRENT_Z=1 USE_CURRENT_Z_ALLOWANCE=1.25 REHOME_XY=1 ZDBG=1
+    # <<< M_Bamboo_SV08MAX_MOD:CONFIG_START_PRINT_POST_MESH END <<<

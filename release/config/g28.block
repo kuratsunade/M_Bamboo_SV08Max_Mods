@@ -1,0 +1,33 @@
+# >>> M_Bamboo_SV08MAX_MOD:SAFE_HOME_G28 BEGIN >>>
+# Version: 2
+# Maintainer: Master_Bamboo / 竹子
+# Purpose: Preserve touchscreen G28 ABI while routing homing through Safe Home.
+[gcode_macro G28]
+rename_existing: M9928
+gcode:
+    {% if printer.probe.is_calibrated %}
+        {% if params.X is defined or params.Y is defined or params.Z is defined %}
+            {% if params.X is defined and params.Y is defined and params.Z is not defined %}
+                M_BAMBOO_HOME_XY
+            {% elif params.X is defined %}
+                M_BAMBOO_HOME_X
+            {% elif params.Y is defined %}
+                M_BAMBOO_HOME_Y
+            {% elif params.Z is defined %}
+                M_BAMBOO_HOME_Z
+            {% endif %}
+        {% else %}
+            M_BAMBOO_HOME_ALL
+        {% endif %}
+    {% else %}
+        {% if params.X is defined or params.Y is defined %}
+            M9928 {rawparams}
+        {% else %}
+            M9928 X
+            M9928 Y
+            Z_OFFSET_CALIBRATION METHOD=force_overlay EXTRUDER_TEMP=0 BED_TEMP=0
+            M400
+            SAVE_CONFIG
+        {% endif %}
+    {% endif %}
+# <<< M_Bamboo_SV08MAX_MOD:SAFE_HOME_G28 END <<<

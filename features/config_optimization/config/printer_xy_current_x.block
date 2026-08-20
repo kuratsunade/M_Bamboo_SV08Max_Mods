@@ -1,7 +1,0 @@
-# >>> M_Bamboo_SV08MAX_MOD:CONFIG_XY_CURRENT_X BEGIN >>>
-# Version: 1
-# Maintainer: Master_Bamboo / 竹子
-# Stock value: run_current=3.0
-# Managed value: run_current=2.3
-run_current: 2.3
-# <<< M_Bamboo_SV08MAX_MOD:CONFIG_XY_CURRENT_X END <<<

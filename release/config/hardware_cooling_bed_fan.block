@@ -1,0 +1,8 @@
+# >>> M_Bamboo_SV08MAX_MOD:HARDWARE_COOLING_BED_FAN BEGIN >>>
+# Version: 1
+# Maintainer: Master_Bamboo / 竹子
+# Stock: fan_speed key absent
+# Managed value: fan_speed=0.6
+# Requires the corresponding physical Hardware Cooling modification.
+fan_speed: 0.6
+# <<< M_Bamboo_SV08MAX_MOD:HARDWARE_COOLING_BED_FAN END <<<
