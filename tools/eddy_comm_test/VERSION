@@ -1,0 +1,3 @@
+M_Bamboo_EAR_Public_Test_Toolkit v0.1.0
+Baseline: M_Bamboo_SV08Max_Mods v1.0.0-rc4
+Backend policy: read-only; no klippy/extras Python files are installed or modified.
