@@ -1,112 +1,81 @@
-# M_Bamboo EAR Public Test Toolkit v0.1.0
+# M_Bamboo EAR Public Test Toolkit v0.1.1
 
 面向 **M_Bamboo_SV08Max_Mods v1.0.0-rc4** 的公开 Eddy 通信测试工具。
 
-## 范围
+## v0.1.1 修正
 
-这个公开版只保留 EAR / R3E / R3F 调查过程中真正有价值、又不需要 engineering backend 的部分：
-
-- RC4 backend SHA256 预检
-- 可重复的 contact-probe churn matrix
-- 可配置 burst / dwell / pass 数量
-- 测试前后的 `M_BAMBOO_EDDY_STATUS`
-- 时间戳化 `klippy.log` / Moonraker log 导出
-- 调用 RC4 自带 recovery check 的辅助脚本
-- 可安全卸载 tester 本身
+v0.1.0 把 tester 过度简化成了 shell 驱动 matrix，误删了原本已经成熟的 `M_Bamboo_Soak` Klipper-side 测试层。v0.1.1 恢复 `M_Bamboo_Soak.cfg` 的 soak / matrix / recovery state machine，同时继续保持 backend-neutral。
 
 ## 硬性边界
 
-**本工具不会安装、覆盖、patch 或删除 `/home/sovol/klipper/klippy/extras/` 下任何 Python 文件。**
+本工具**不会安装、覆盖、patch 或删除 `/home/sovol/klipper/klippy/extras/` 下任何文件**。
 
-特别包括：
-
-- `probe_eddy_current.py`
-- `ldc1612.py`
-- `probe.py`
-- `homing.py`
-- `z_offset_calibration.py`
-- `M_Bamboo_Safe_Homing.py`
-
-这些文件必须保持用户所安装 RC branch 的原样。
-
-## RC4 参考 hash
+要求 RC4 backend hash：
 
 ```text
 ldc1612.py             aa25833c27367905c68f27dfa6e4d669ddfe304bdaa23febee8287737f757e04
 probe_eddy_current.py  6b82c2a057746cd83ee46e02835e5b392e1ceba9c731d4984b98c1f75c63295e
 ```
 
-默认 preflight 是 fail-closed：hash 不一致时不会继续运行参考测试。
+## 恢复的功能
+
+- `M_BAMBOO_SOAK_START`
+- `M_BAMBOO_SOAK_STOP`
+- `M_BAMBOO_SOAK_STATUS`
+- `M_BAMBOO_SOAK_RESET_STATS`
+- `M_BAMBOO_CHURN_MATRIX_START`
+- `M_BAMBOO_CHURN_MATRIX_STOP`
+- soak tester 原有的 RC4 transport evaluation / bounded recovery orchestration
+- attempt/cell/stage 统计与 failed-attempt 永久计数
+
+HF1/HF2/HF2.1 的 Python lifecycle logger 不包含在公开版中。旧 `M_BAMBOO_EAR_LOG_*` hook 在 cfg 内以 no-op compatibility macro 保留，实际证据使用 RC4 原生 `klippy.log` / Moonraker log。
 
 ## 安装
 
 ```bash
-cd tools/eddy_comm_test
 chmod +x *.sh
 ./install_toolkit.sh
 ```
 
-仅复制到：
+installer 会：
 
-```text
-/home/sovol/M_Bamboo_EAR_Public_Test_Toolkit
+1. fail-closed 检查 RC4 backend hash；
+2. 安装 `M_Bamboo_Soak.cfg` 到 `printer_data/config`；
+3. 在 `printer.cfg` 中加入 marker-managed `[include M_Bamboo_Soak.cfg]`；
+4. 安装 shell helper 到 `/home/sovol/M_Bamboo_EAR_Public_Test_Toolkit`。
+
+然后执行 Klipper `RESTART`。
+
+## 使用
+
+```gcode
+M_BAMBOO_CHURN_MATRIX_START PASSES_PER_CELL=5
 ```
 
-因为不修改 Python backend，所以不需要为安装 tester 重启 Klipper。
+状态：
 
-## 运行参考 matrix
-
-```bash
-./run_matrix.sh
+```gcode
+M_BAMBOO_SOAK_STATUS
+M_BAMBOO_EDDY_STATUS
 ```
 
-默认：
+停止：
 
-- BURST=8
-- dwell = 0 / 10 / 25 / 50 / 75 / 100 ms
-- 每个 cell 目标 5 次完整 PASS
-
-可覆盖：
-
-```bash
-BURST=8 PASSES_PER_CELL=5 DWELLS_MS="0 10 25 50 75 100" ./run_matrix.sh
+```gcode
+M_BAMBOO_CHURN_MATRIX_STOP
 ```
 
-### Safety 行为
+也可以用 `./run_matrix.sh` 作为启动 wrapper。
 
-工具不会绕过 RC4 Eddy Safety，也不会 retry 失败的 contact transaction。一旦 Moonraker 返回 command failure，当前 matrix 停止，交给用户检查。
+失败 transaction 永远不会被 tester retry，最终 safety decision 仍以 RC4 Eddy Safety 为准。
 
-通信 fault 后请以 RC4 `M_BAMBOO_EDDY_STATUS` 给出的 guidance 为准，不提供 force-clear。
-
-## 导出证据
+## 导出
 
 ```bash
 ./collect_logs.sh
 ```
 
-会生成包含以下内容的 tar.gz：
-
-- backend SHA256
-- tester VERSION
-- `klippy.log`
-- Moonraker log（存在时）
-- tester result log
-
-只读收集，不修改 Klipper。
-
-## Recovery helper
-
-```bash
-./recovery_check.sh
-```
-
-它只调用 RC4 已有的：
-
-```gcode
-M_BAMBOO_EDDY_RECOVERY_CHECK
-```
-
-不会自行发明新的 recovery policy。
+会导出 RC4 `klippy.log`、Moonraker log、backend hash、tester VERSION 与当前 soak cfg。
 
 ## 卸载
 
@@ -114,24 +83,10 @@ M_BAMBOO_EDDY_RECOVERY_CHECK
 ./remove_toolkit.sh
 ```
 
-仅删除：
+只删除 public tester 的 marker include、`M_Bamboo_Soak.cfg` 和 tester 目录，不触碰 `klippy/extras`。之后执行 Klipper `RESTART`。
 
-```text
-/home/sovol/M_Bamboo_EAR_Public_Test_Toolkit
-```
+## 解释限制
 
-不会触碰 `klippy/extras`。
-
-## 重要解释限制
-
-这里的 `DWELL_MS` 是 Z lift / `M400` 之后额外加入的 nominal dwell，**并不等于完整的 backend `STOP_ACK -> next START` 间隔**。之前 instrumented engineering test 已经证明，实际间隔往往由 Z motion 和命令调度占主导。
-
-因此这个 public matrix 适合：
-
-- 复现通信 fault
-- 收集不同机器上的 field evidence
-- 比较 fault context / raw error code
-
-不适合单独用于宣称一个精确的 I2C quiescence threshold。
+matrix 的 dwell 仍是 Z lift / `M400` 后的 nominal dwell，不等于精确 `STOP_ACK -> next START`。它适合复现 fault 和收集 field evidence，不适合单独证明精确 I2C timing threshold。
 
 Maintainer: Master_Bamboo / 竹子
