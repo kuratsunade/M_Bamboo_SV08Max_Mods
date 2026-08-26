@@ -108,13 +108,13 @@ RC5 therefore treats PREARM as a safety invariant, not a cleanup candidate.
 
 ## Will RC5 automatically recover a PREARM or Eddy transport fault during `START_PRINT`?
 
-That is the intended RC5 behavior for faults that meet the safety core's recoverable criteria.
+That is the intended RC5 behavior for faults that meet the Safety Core's recoverable criteria.
 
 RC5 adds a small startup coordinator above the existing Eddy Safety Core. A recoverable fault is contained before it escapes to the virtual-SD print executor, then the coordinator:
 
 1. cleans/quarantines the failed Eddy lifecycle;
 2. verifies transport health without Z motion;
-3. performs one fresh armed Safe Home if Z trust must be rebuilt;
+3. performs one fresh Safe Home if Z trust must be rebuilt — using the Safety Core's one-shot armed token after an active bed-facing fault, or a normal PREARM-protected Safe Home when transport is already HEALTHY but the owning stage independently revoked Z homing;
 4. restores temporary state owned by the interrupted startup stage;
 5. reruns the complete failed atomic stage;
 6. continues `START_PRINT` only after that stage succeeds.
@@ -123,13 +123,26 @@ RC5 adds a small startup coordinator above the existing Eddy Safety Core. A reco
 
 No. Recovery is deliberately bounded.
 
-- **One armed Z-recovery attempt per fault episode.**
-- If that recovery fails, the episode is terminal. RC5 does not issue another blind G28.
+- **One armed Z-recovery attempt per active-fault episode.**
+- If that armed recovery fails, the episode is terminal. RC5 does not issue another blind G28.
 - A later independent fault is eligible only after the previously recovered atomic stage has completed successfully.
 - The full `START_PRINT` sequence has a total recovery budget so repeated faults eventually stop for inspection.
-- Non-Eddy errors and errors without a new transport fault sequence are not swallowed by the coordinator.
+- Non-Eddy errors are not swallowed by the coordinator.
 
 The current design target is up to **3 successfully recovered independent startup episodes**; the final release value remains subject to hardware fault-injection validation.
+
+## How does the coordinator know a failure is new and belongs to the current stage?
+
+It does not rely on error-message text alone and it does not treat historical `HARD_COMM_FAULT` state as sufficient.
+
+At stage entry it snapshots two monotonic Safety Core markers:
+
+- `transport_fault_seq` — increases when new asynchronous I2C transport evidence is received;
+- `preflight_failed_count` — increases when a PREARM gate exhausts its bounded readiness windows, including cases where repeated identity/readiness failure does not produce a new asynchronous I2C report.
+
+A caught stage error is eligible for automatic Eddy recovery only if the Safety Core classifies the current fault as recoverable **and at least one of those stage-local markers advanced during that stage**.
+
+This catches both raw transport faults and genuine `PREARM_NOT_READY` failures without parsing error strings, while avoiding accidental recovery of unrelated QGL/macro/configuration errors or stale historical fault state.
 
 ## Why restart a whole startup stage instead of retrying the failed sensor command?
 
@@ -152,7 +165,13 @@ The explicit post-QGL Z-home stage is special: if the recovery itself has alread
 
 A normal Klipper macro is not an exception-resumable workflow. If a nested command raises `command_error`, the macro unwinds. If that exception reaches `virtual_sdcard`, the print file stops and `print_stats` enters error state.
 
-The coordinator therefore owns only the Eddy-sensitive startup checkpoints and catches **eligible** transport failures before they escape the top-level `START_PRINT` call. It does not reimplement QGL, mesh, Safe Home, or Z calibration.
+The coordinator therefore owns only the Eddy-sensitive startup checkpoints and catches **eligible** transport/PREARM failures before they escape the top-level `START_PRINT` call. It does not reimplement QGL, mesh, Safe Home, or Z calibration.
+
+## Why does the coordinator call `BED_MESH_CALIBRATE_BASE` instead of the wrapper during the managed START sequence?
+
+The compatibility `BED_MESH_CALIBRATE` macro has its own dependency orchestration: it can home/calibrate when `has_z_offset_calibrated` is false, can run QGL if it is not applied, and temporarily changes `square_corner_velocity`.
+
+Inside the RC5 managed startup core, those dependencies already belong to the coordinator. Calling the wrapper would create two workflow owners. The managed MESH stage therefore verifies the required checkpoints, snapshots/restores the true SCV, and calls the existing renamed mesh implementation directly with the same adaptive rapid-scan parameters. The wrapper remains unchanged for standalone/manual user calls.
 
 ## What startup state must be cleaned after a failure?
 
@@ -161,7 +180,7 @@ Audit identified both workflow and temporary execution state that can otherwise 
 Examples include:
 
 - `has_z_offset_calibrated`;
-- `square_corner_velocity` temporarily changed by the mesh wrapper;
+- `square_corner_velocity` temporarily changed for the mesh scan;
 - current Z homing/trust state;
 - active Eddy transaction/session pointers;
 - sensor clients / bulk stream lifecycle;
@@ -182,7 +201,10 @@ fresh Z home required if
     current homed_axes no longer contains Z
 ```
 
-This preserves PREARM's "no descent occurred" semantics without trusting a calibration-local coordinate state that has already been invalidated.
+There are two safe subcases:
+
+- active bed-facing fault -> transport becomes `TRANSPORT_RECOVERED`, and the one-shot armed Safe Home token is required;
+- PREARM caught the transport before motion but ZCAL independently revoked homing -> transport can already be `HEALTHY`, so a normal PREARM-protected fresh Safe Home is appropriate and no armed token should be required.
 
 ## Why quarantine the LDC stream after a transport fault?
 
@@ -194,7 +216,7 @@ Quarantine forces the active stream to stop and creates a clean lifecycle bounda
 
 HF2 testing showed a real case where motion had already stopped and the LDC stream/client had been cleaned, but `pull_probed()` later raised a sensor-outage exception. RC4 production can leave `_active_transaction` stale on that path, causing later recovery to be blocked by software state even though the physical stream is already stopped.
 
-RC5 productionizes the HF2.1 whole-terminal-lifecycle cleanup and applies the same principle to rapid scan.
+RC5 productionizes the HF2.1 whole-terminal-lifecycle cleanup, applies the same terminal rule to rapid scan, and also ensures an Eddy calibration client is deterministically removed if the calibration movement exits abnormally.
 
 ## Does a successful QGL remain valid after a later recovery G28?
 
