@@ -1,51 +1,82 @@
 # M_Bamboo_SV08Max_Mods
 
-A modular Klipper improvement project for the **Sovol SV08 Max (500 × 500)**, focused on safety, calibration, configuration maintenance, diagnostics, and recoverable release management.
+A modular Klipper improvement project for the **Sovol SV08 Max (500 × 500)**, focused on Z safety, Eddy reliability, calibration behavior, configuration quality, diagnostics, and reversible release management.
 
 > Maintainer: **Master_Bamboo / 竹子**  
-> Current Release Candidate: **v1.0.0-rc4**  
-> Runtime Safety: **ES-R4-EC2-FS1.1**  
-> Status: **RC; healthy path and one natural raw-34 fault/recovery path validated on hardware; continued soak remains in progress**  
+> Public baseline: **v1.0.0-rc4**  
+> RC5: **in development / validation preparation**  
+> Runtime Safety baseline: **ES-R4-EC2-FS1.1**  
 > [简体中文 README](README_CN.md)
 
-## Project Overview
+## Project status
 
-`M_Bamboo_SV08Max_Mods` is a modular set of improvements for the Sovol SV08 Max Klipper software stack. It does not replace the complete Sovol firmware and does not require rebuilding or flashing MCU firmware. Instead, it applies bounded changes while preserving the touchscreen, Eddy contact probe behavior, hardware interfaces, and calling conventions that the printer depends on.
+RC4 remains the current public release candidate. RC5 is a focused continuation of the same architecture, not a firmware rewrite.
 
-The objective is not simply to run the newest Official Klipper. The project addresses several practical weaknesses observed in the SV08 Max stack:
+RC5 work currently includes:
 
-- loose boundaries between homing, probing, and Z coordinate trust;
-- insufficient coupling between Eddy transport failures and later Z motion;
-- repeatability and movement-boundary problems in parts of Z calibration and nozzle cleaning;
-- aggressive or difficult-to-maintain stock motion, QGL, current, and mesh settings;
-- limited observability when the customized Eddy stack misbehaves;
-- lack of a unified, verifiable, and recoverable lifecycle for modified configuration and Python backends.
+- productionizing the late probe/scan transaction cleanup proven during HF2.1 testing;
+- retaining **PREARM** as the fail-closed gate before safety-critical Eddy Z motion;
+- adding bounded **automatic recovery** for eligible PREARM / Eddy transport faults during the `START_PRINT` core sequence;
+- restarting failed QGL / mesh / Z-calibration work from clean atomic checkpoints instead of resuming a failed sensor transaction;
+- cleaning startup-only state so a failed print start cannot poison the next one;
+- completing the Sovol STM32F1 I2C source audit and defining the exact MCU/host trust boundary;
+- consolidating real-machine test statistics and revised hypotheses into release documentation.
 
-M_Bamboo aims to make these behaviors safer, more deterministic, easier to diagnose, and easier to restore while keeping changes attributable to explicit features.
+RC5 hardware fault-injection and final release validation are still pending. Until RC5 is promoted, the installation commands below refer to the current `main` release.
 
-Detailed failure models, implementation mechanics, evidence boundaries, and open engineering questions live in the technical documentation rather than this README.
+## Project boundary
 
-## Feature Overview
+M_Bamboo does **not** modify, rebuild, flash, or replace Sovol MCU firmware. This is a project-level constraint, not an RC5-only choice.
 
-| Feature | Purpose | Current status | Included by `all` |
-|---|---|---|---:|
-| **Safe Home** | Establishes safe clearance when Z is untrusted, then performs XY homing and a real Eddy Z home before treating Z as trusted | Hardware validated | Yes |
-| **Config Optimization** | Refines motion, QGL, currents, adaptive mesh, buffer stepper, and related SV08 Max configuration | Hardware validated lineage | Yes |
-| **Eddy Safety / Calibration** | Hardens Eddy transport, probing, Z trust, calibration transactions, fault blocking, recovery checks, and diagnostics | Healthy path validated; one natural raw-34 abort, quarantine, recovery, fresh G28, and return-to-print path also validated | Yes |
-| **Z Calibration Refinement** | Improves two-stage calibration, contact verification, and final XY reseat repeatability | Integrated and hardware validated | With Eddy Safety |
-| **Nozzle Cleaner** | Uses a real contact datum for the wipe plane and removes the deterministic stock-style below-limit plunge path | Integrated and hardware validated | With Config Optimization |
-| **Diagnostics** | Provides Eddy status, recovery checks, and XY stress interfaces without automatically running stress motion | Formal release-owned feature | Yes |
-| **Hardware Cooling** | Provides configuration for the corresponding physical cooling modification | Optional, hardware dependent | **No** |
-| **Full Restore** | Removes M_Bamboo-owned configuration changes and restores trusted pre-M_Bamboo backend state | Installer lifecycle core | Installer capability |
+Source audit has confirmed lower-layer Sovol STM32F1 I2C/LDC behaviors that can make a failed transaction ambiguous. M_Bamboo deliberately stops ownership at that boundary: existing MCU telemetry is used as fault evidence, while transaction isolation, PREARM, stream quarantine, Z-trust handling, lifecycle cleanup, and bounded workflow recovery are completed entirely in the Klipper host/config layer.
 
-The current RC does not include the PLR redesign or the experimental Gantry Safe Leveler. They are not normal-install dependencies. See the [Release Notes](RELEASE_NOTES.md) for exact per-release scope.
+See [Sovol STM32F1 I2C / Eddy Root-Cause Audit](docs/I2C_ROOT_CAUSE_AND_HOST_BOUNDARY.md) for the high- and low-level analysis.
+
+## Feature overview
+
+| Feature | Purpose | Status |
+|---|---|---|
+| **Safe Home** | Establishes safe clearance and a real Eddy Z reference when Z is unknown or untrusted | Hardware validated |
+| **Config Optimization** | Refines motion, QGL, currents, adaptive mesh, buffer stepper, and related SV08 Max settings | Hardware-validated lineage |
+| **Eddy Safety / Calibration** | Transport-fault handling, PREARM, transaction taint, quarantine, Z trust, bounded recovery, and calibration integrity | RC4 validated; RC5 hardening in progress |
+| **Z Calibration Refinement** | Two-stage Z calibration, contact verification, and final XY reseat | Hardware validated |
+| **Nozzle Cleaner** | Uses a real contact datum for the wipe plane and avoids the old below-limit plunge path | Hardware validated |
+| **Diagnostics** | Eddy status, recovery checks, and explicit stress/diagnostic interfaces | Included in default software set |
+| **Hardware Cooling** | Configuration for the corresponding physical cooling modification | Optional; not installed by `all` |
+| **Full Restore** | Removes M_Bamboo-owned changes and restores trusted pre-M_Bamboo backend state | Installer capability |
+
+PLR redesign and the experimental Gantry Safe Leveler are **not** part of the current RC5 scope.
+
+## Eddy recovery model
+
+RC5 keeps PREARM and extends it into bounded startup recovery.
+
+A recoverable fault during the Eddy-sensitive `START_PRINT` chain follows this high-level policy:
+
+```text
+transport / PREARM fault
+-> hold or abort the current atomic startup stage
+-> clean/quarantine the Eddy lifecycle
+-> verify transport health without Z motion
+-> rebuild Z trust with one fresh armed Safe Home when required
+-> restore stage-local temporary state
+-> rerun the complete failed stage
+-> continue START_PRINT only after the stage completes cleanly
+```
+
+This is **not blind retry**:
+
+- one armed Z-recovery attempt per fault episode;
+- if that recovery attempt fails, the episode is terminal;
+- a later independent fault is eligible only after the recovered stage has completed successfully;
+- `START_PRINT` has a total automatic-recovery budget so repeated faults eventually stop for inspection;
+- non-Eddy errors are not swallowed by the recovery coordinator.
+
+The current design target is up to **3 successfully recovered independent startup episodes**, subject to final RC5 hardware fault-injection validation.
 
 ## Installation
 
-
-### GitHub Bootstrap Installation
-
-For the GitHub mirror, download the repository bootstrap directly from the `main` branch:
+### GitHub bootstrap
 
 ```bash
 cd /home/sovol
@@ -54,341 +85,134 @@ wget -O M_Bamboo_bootstrap.sh \
 sh M_Bamboo_bootstrap.sh all
 ```
 
-Review the dry-run output. To apply:
+The installer is dry-run by default. Review the result, then apply:
 
 ```bash
 sh M_Bamboo_bootstrap.sh all --apply
 ```
 
-The bootstrap downloads the GitHub repository snapshot, verifies the repository-root `SHA256SUMS`, and only then launches `install.sh`.
+The bootstrap verifies the repository-root `SHA256SUMS` before launching the installer.
 
-### 3.1 Before Installation
+### Local package / advanced use
 
-Before installing:
-
-1. Make sure the printer is idle and not printing or calibrating.
-2. Confirm that you can SSH into the Sovol host.
-3. Confirm that Klipper currently starts normally.
-4. If other mods have changed `printer.cfg`, `Macro.cfg`, or `klippy/extras/*.py`, identify those changes first.
-5. Do not bypass installer provenance or conflict checks simply to make an installation continue.
-
-Download or copy the release package to the printer, extract it, and enter the project directory.
-
-The installer is **dry-run by default**. A command without `--apply` does not write changes.
-
-### 3.2 Recommended Full Installation
-
-Inspect the current machine state:
+Inspect current state:
 
 ```bash
 ./install.sh all --status
 ```
 
-Preview the planned installation:
+Preview:
 
 ```bash
 ./install.sh all
-```
-
-Inspect exact configuration and backend differences when needed:
-
-```bash
 ./install.sh all --raw-diff
 ```
 
-Apply only after the preview is correct:
+Apply:
 
 ```bash
 ./install.sh all --apply
 ```
 
-`all` installs the normal software features, including Diagnostics. It does **not** install Hardware Cooling.
+`all` installs the normal software feature set. **Hardware Cooling is not included** because it requires the matching physical modification.
 
-After installation and a successful Klipper restart, check Eddy Safety before the first motion:
-
-```text
-M_BAMBOO_EDDY_STATUS
-```
-
-If no unexpected fault is present, perform a normal:
-
-```text
-G28
-```
-
-After a first install or major upgrade, follow the [Hardware Validation Guide](docs/HARDWARE_VALIDATION.md) for basic motion, probing, QGL, Z calibration, and a small print before returning to unattended use.
-
-### 3.3 Installing an Individual Feature
-
-Features can be previewed and installed independently:
+Individual features may also be previewed/applied independently:
 
 ```bash
 ./install.sh safe_home
-./install.sh safe_home --apply
-
 ./install.sh config_optimization
-./install.sh config_optimization --apply
-
 ./install.sh eddy_safety
-./install.sh eddy_safety --apply
-
 ./install.sh diagnostics
-./install.sh diagnostics --apply
 ```
 
-Some features have dependencies. The installer resolves ownership and dependencies from the release manifest. Do not substitute manual copying of individual backend files for the normal installation flow.
+Add `--apply` only after reviewing the dry-run.
 
-#### Hardware Cooling
+### Full Restore
 
-Hardware Cooling is explicitly opt-in and is never installed by `all`:
-
-```bash
-./install.sh hardware_cooling
-./install.sh hardware_cooling --apply
-```
-
-Only enable it after the corresponding physical cooling modification has been completed.
-
-### 3.4 Updating an Existing M_Bamboo Installation
-
-Use the installer from the **new release package**.
-
-Start by checking detected state and lineage:
-
-```bash
-./install.sh all --status
-```
-
-Then preview the upgrade:
-
-```bash
-./install.sh all
-./install.sh all --raw-diff
-```
-
-Apply only after the detected provenance and planned changes are correct:
-
-```bash
-./install.sh all --apply
-```
-
-The installer uses exact SHA256 identities and known lineages for managed backend files. If an existing backend cannot be identified safely, it fails closed rather than assuming that the file is stock.
-
-### 3.5 Installation Troubleshooting
-
-Installer refusals are generally protection mechanisms. Resolve the reason first rather than editing the installer or manually overwriting files to bypass the check.
-
-#### Unknown Backend or Provenance Refusal
-
-If an existing backend is reported as unknown or first takeover is refused:
-
-1. Save the complete installer output.
-2. Run:
-
-```bash
-./install.sh all --status
-./install.sh all --raw-diff
-```
-
-3. Determine whether the affected file came from:
-   - another Sovol firmware build;
-   - a third-party modification;
-   - a manually edited Klipper backend;
-   - an older M_Bamboo engineering package.
-4. Do not overwrite it until the provenance is understood.
-
-The installer deliberately does not provide a generic `--force` option for taking ownership of unknown Python backends.
-
-#### Configuration Conflict
-
-If an existing configuration cannot be transformed safely:
-
-1. Inspect the reported section or managed block.
-2. Use `--raw-diff` to review the intended change.
-3. Determine whether the conflicting content belongs to the user, another mod, or an older M_Bamboo block.
-4. Reconcile it only after ownership is clear, then rerun the dry-run.
-
-M_Bamboo should not silently overwrite unrelated user configuration just to complete an install.
-
-#### Failure During a Write Transaction
-
-Actual writes are transactional.
-
-Normally:
-
-```text
-write failure
-→ automatic rollback
-→ restore immediate pre-transaction state
-```
-
-If automatic rollback itself cannot complete, the installer deliberately retains the recovery snapshot and reports a path similar to:
-
-```text
-/tmp/M_Bamboo_SV08MAX.*
-```
-
-Do not delete that directory until the machine has been recovered or the snapshot has been copied somewhere safe.
-
-#### Klipper Does Not Start After Installation
-
-Do not immediately run `G28`, probe, QGL, or other motion.
-
-Preserve:
-
-- complete installer output;
-- `klippy.log`;
-- output of `./install.sh all --status`;
-- the retained transaction snapshot path, if one was reported.
-
-If the cause cannot be resolved quickly, Full Restore can return the machine to the pre-M_Bamboo state.
-
-### 3.6 Full Restore
-
-Preview a complete restore:
+Preview:
 
 ```bash
 ./install.sh all --restore
 ```
 
-Apply it:
+Apply:
 
 ```bash
 ./install.sh all --restore --apply
 ```
 
-Full Restore is the supported way to remove the complete M_Bamboo installation. It reverses M_Bamboo-owned configuration transformations and restores managed Klipper Python backends from the trusted original-state archive.
+Full Restore reverses M_Bamboo-owned configuration transformations and restores managed Python backends from the trusted original-state archive.
 
-Installing an older M_Bamboo version does not require a complex downgrade engine inside the current installer:
+The supported historical-version path is:
 
 ```text
 current release
-→ Full Restore
-→ pre-M_Bamboo / original state
-→ obtain the desired historical release
-→ run that release's own installer
+-> Full Restore
+-> pre-M_Bamboo/original state
+-> install the desired historical release with that release's installer
 ```
 
-## Overview FAQ
+## Installer principles
 
-### Is this a replacement third-party Sovol firmware?
+- dry-run by default;
+- exact backend SHA/provenance gates;
+- fail closed on unknown backend lineage;
+- stable feature-owned markers for `printer.cfg` / `Macro.cfg`;
+- one trusted pre-M_Bamboo backend archive under `klippy/extras/mb_bak/`;
+- transaction snapshot and automatic rollback for real writes;
+- temporary installer/download/extraction files cleaned after successful or safely rolled-back operations;
+- no generic force-overwrite path for unknown Python backends.
 
-No. The project currently does not rebuild or flash Sovol MCU firmware and is not a complete replacement system. It primarily manages Klipper user-space Python, configuration, macros, and installer lifecycle behavior while preserving the SV08 Max hardware interfaces and calling conventions that remain necessary.
+## FAQ
 
-### Why not just update the SV08 Max to the newest Official Klipper?
+### Is this a replacement Sovol firmware?
 
-The SV08 Max relies on Sovol-specific Eddy contact behavior, Z calibration, touchscreen calling conventions, and other hardware integrations. Replacing the complete stack with current upstream Klipper could break those interfaces. M_Bamboo selectively adopts clearer upstream semantics where appropriate while preserving the Sovol ABI and hardware behavior that the printer requires.
+No. M_Bamboo does not modify or flash MCU firmware. It works in Klipper host Python, configuration, macros, and the installer lifecycle while preserving the Sovol hardware/G-code ABI that the SV08 Max depends on.
 
-### What is the main purpose of the project?
+### Why not simply upgrade to current Official Klipper?
 
-It is not primarily a speed-tuning package. The core work tightens the boundaries between Z trust, probe failures, Eddy transport faults, calibration transactions, and recovery behavior, while also improving homing, Z calibration, nozzle cleaning, QGL, configuration tuning, and diagnostics.
+The SV08 Max stack contains Sovol-specific Eddy contact behavior, MCU commands, Z calibration, touchscreen-facing calling conventions, and other integration. M_Bamboo selectively adopts clearer upstream semantics without casually replacing hardware-specific interfaces.
 
-### Does `all` modify everything on the printer?
+### Does PREARM guarantee that an I2C fault can never happen?
 
-No. `all` means the default software feature set for the current release. Hardware Cooling is intentionally excluded because it requires a physical modification. The installer should only modify backends and configuration transformations that have explicit M_Bamboo ownership.
+No. PREARM prevents an already unhealthy or newly unstable transport state from starting a safety-critical bed-facing action. A new fault can still occur after motion begins; runtime transaction guards then abort/taint the action and revoke Z trust where required.
 
-### Does installing Diagnostics automatically run an XY stress test?
+### Will RC5 automatically recover a PREARM / transport fault during `START_PRINT`?
 
-No. Diagnostics installs public diagnostic interfaces only. XY stress motion requires an explicit user command.
+For faults that the safety core classifies as recoverable, yes. Recovery remains bounded and checkpoint based. A failed recovery attempt is never blindly repeated.
 
-### Does the current release include PLR?
+### Does a successful transport recovery validate the failed Probe/QGL/mesh transaction?
 
-No. The stock resume design has checkpoint-identity and coordinate-trust issues that require a separate redesign. PLR is therefore deferred as an independent feature rather than being carried into this RC unchanged.
+No. The failed transaction remains invalid. RC5 re-runs the owning atomic startup stage from a clean checkpoint.
 
-### Can the printer be restored to its original or pre-install state?
+### Does the project include PLR?
 
-Yes. Full Restore reverses M_Bamboo-owned configuration changes and restores the centralized trusted original backend state. It does not depend on an indefinitely growing chain of previous-version backups.
+Not in the current RC5 scope. PLR remains a separate feature because its checkpoint identity and coordinate-trust model require independent work.
 
-### Can the installer directly downgrade to any historical M_Bamboo release?
+### Does `all` install Hardware Cooling?
 
-There is no generic downgrade engine in the current installer. The deterministic path is Full Restore followed by the installer from the desired historical release.
+No. Hardware Cooling is explicitly opt-in because it depends on a physical modification.
 
-### Does this RC prove that every Eddy fault condition is completely solved?
+### Can the printer be restored?
 
-No. The healthy path has substantial real-machine validation, and one naturally occurring raw-34 `I2C_BUS_NACK | I2C_BUS_BUSY` event has now been observed through safe abort, stream quarantine, no-motion recovery check, fresh armed G28, and successful return to printing without firmware reset. Continued fault soak is still required before stable promotion. The Technical FAQ, Hardware Validation guide, and Release Notes distinguish this one-event validation from broader long-term confidence.
-
-## File Ownership, Backup Policy, and Project Principles
-
-### File Ownership
-
-The project keeps responsibilities attributable to explicit components instead of placing all logic in one macro or replacing entire configuration files.
-
-| File / scope | Primary responsibility |
-|---|---|
-| `M_Bamboo_Safe_Homing.py` | Safe Home and coordinate-trust orchestration |
-| `probe.py` | Safe endpoint policy for ordinary non-contact probing |
-| `probe_eddy_current.py` | Eddy operation state, fault handling, diagnostics, and transaction trace |
-| `ldc1612.py` | LDC1612 transport, telemetry, and related low-level state |
-| `z_offset_calibration.py` | Z calibration, contact verification, and final XY reseat |
-| `printer.cfg` | Feature-owned reversible configuration transformations only |
-| `Macro.cfg` | Stable M_Bamboo managed blocks for macros and orchestration |
-| `installer.py` | Provenance, feature ownership, transactions, restore, and release lifecycle |
-
-See the [Command & Public Interface Reference](docs/COMMAND_REFERENCE.md) for exact public commands, parameters, compatibility interfaces, and feature ownership.
-
-### Configuration Policy
-
-User configuration files such as `printer.cfg` and `Macro.cfg` do not use persistent whole-file backups as the normal restore mechanism.
-
-M_Bamboo prefers stable machine-readable markers:
-
-```text
-# >>> M_Bamboo_SV08MAX_MOD:<FEATURE> BEGIN >>>
-...
-# <<< M_Bamboo_SV08MAX_MOD:<FEATURE> END <<<
-```
-
-Restore reverses only M_Bamboo-owned transformations while preserving unrelated user content and `SAVE_CONFIG` generated content wherever applicable.
-
-### Python Backend Backup Policy
-
-Managed Klipper backends retain one provenance-validated pre-M_Bamboo original state under:
-
-```text
-/home/sovol/klipper/klippy/extras/mb_bak/
-```
-
-That original state is not overwritten during normal upgrades.
-
-Legacy `.mb_baseline` files are accepted only when their exact SHA256 proves stock provenance. For recognized M_Bamboo lineage, a missing or polluted legacy baseline may be recovered from Sovol's factory mirror only when that mirror independently matches an exact known stock SHA256. Neither source is trusted by pathname alone.
-
-### Transaction Snapshots
-
-Every real write transaction uses a temporary recovery snapshot.
-
-- successful transaction: cleaned up;
-- failed transaction with successful automatic rollback: cleaned up;
-- rollback failure: retained and reported for manual recovery.
-
-### Project Principles
-
-- no requirement to rebuild or flash Sovol MCU firmware;
-- preserve touchscreen and Sovol G-code / hardware ABI compatibility where required;
-- move behavior toward clearer Klipper semantics without casually breaking hardware integration;
-- keep feature ownership explicit and support independent installation, upgrade, and restore where practical;
-- prefer reversible local configuration transformations over whole-file user-config replacement;
-- fail closed on unknown backend provenance;
-- make installer writes transactionally recoverable;
-- distinguish code-proven facts, hardware-observed facts, engineering inference, and pending validation;
-- do not add unvalidated features to the default release merely to complete a checklist.
+Yes. Full Restore is the supported removal/recovery path for M_Bamboo-owned changes.
 
 ## Documentation
 
-The README provides project orientation, feature scope, and installation guidance. Release-specific and implementation-specific information is maintained separately:
-
-- **[Release Notes](RELEASE_NOTES.md)**: exact changes, scope, and known limitations for each release.
-- **[Command & Public Interface Reference](docs/COMMAND_REFERENCE.md)**: G-code, macros, installer CLI, parameters, compatibility aliases, and public interface contract.
-- **[Technical FAQ](docs/TECHNICAL_FAQ.md)**: confirmed Sovol behavior, design rationale, safety model, error interpretation, evidence boundaries, and open questions.
-- **[Eddy Safety Engineering Design](docs/ES_R4_ENGINEERING_CANDIDATE.md)**: deeper Eddy Safety architecture, transport fault handling, and transaction model.
-- **[Hardware Validation Guide](docs/HARDWARE_VALIDATION.md)**: hardware validation order, pass/fail criteria, and current evidence.
-- **[Deployment & Restore](docs/DEPLOYMENT_AND_ROLLBACK.md)**: installer transactions, restore mechanics, and recovery details.
-- **[Offline Validation](VALIDATION.md)**: package, code, and static release gates.
-- **[Version Map](VERSION_MAP.md)** / **[Manifest](MANIFEST.md)**: exact artifacts, lineage, ownership, and release package information.
+- **[Release Notes](RELEASE_NOTES.md)** — release history, exact scope, and known limitations.
+- **[Technical FAQ](docs/TECHNICAL_FAQ.md)** — current safety/recovery rationale and fault interpretation.
+- **[Sovol I2C / Eddy Root-Cause Audit](docs/I2C_ROOT_CAUSE_AND_HOST_BOUNDARY.md)** — source history, bitmask semantics, BUSY pin lookup, failed-data boundary, and M_Bamboo's MCU/host cut line.
+- **[RC5 START Recovery Design](docs/RC5_START_RECOVERY_DESIGN.md)** — atomic stages, recovery ownership, dependency handling, and validation requirements.
+- **[RC5 Test Evidence](docs/RC5_TEST_EVIDENCE.md)** — complete statistics, fault context, recovery results, revised hypotheses, and evidence limits.
+- **[Eddy Safety Engineering Design](docs/ES_R4_ENGINEERING_CANDIDATE.md)** — transport-fault architecture and transaction safety model.
+- **[Hardware Validation Guide](docs/HARDWARE_VALIDATION.md)** — hardware validation order and pass/fail criteria.
+- **[Deployment & Restore](docs/DEPLOYMENT_AND_ROLLBACK.md)** — installer transactions, provenance, and restore mechanics.
+- **[Command Reference](docs/COMMAND_REFERENCE.md)** — G-code, macros, installer CLI, and public interfaces.
+- **[Offline Validation](VALIDATION.md)** — package/static release gates.
+- **[Version Map](VERSION_MAP.md)** / **[Manifest](MANIFEST.md)** — exact artifacts, ownership, and lineage.
 
 ## Disclaimer
 
-This project changes Klipper behavior on a large CoreXY 3D printer, including homing, probing, Z calibration, motion configuration, and related safety flows. Review the dry-run before installation and validate basic machine motion and printing on the real printer before unattended use.
+This project changes Klipper behavior on a large CoreXY printer, including homing, probing, Z calibration, motion configuration, and recovery logic. Review installer dry-runs and complete real-machine validation before returning to unattended use.
 
-This is a community-maintained project and is not affiliated with or endorsed by Sovol. Users remain responsible for evaluating compatibility with their machine state, hardware modifications, and third-party changes.
-
-Development and technical documentation may include AI-assisted work. Hardware behavior and safety claims should ultimately be evaluated through source inspection, maintainer review, reproducible testing, and explicit real-machine evidence.
+This is a community-maintained project and is not affiliated with or endorsed by Sovol. Development documentation may include AI-assisted analysis; safety claims should ultimately be grounded in source inspection, reproducible testing, maintainer review, and explicit hardware evidence.
