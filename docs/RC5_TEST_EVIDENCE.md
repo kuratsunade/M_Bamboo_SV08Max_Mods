@@ -2,7 +2,9 @@
 
 > Branch: `rc5-dev`  
 > Purpose: consolidate the engineering test evidence that informed the RC5 communication-safety design.  
-> Scope: host-side Klipper / Eddy safety behavior only. This document does **not** claim that the underlying STM32F1/LDC1612 root cause has been eliminated.
+> Scope: host-side Klipper / Eddy safety behavior only. This document does **not** claim that the underlying STM32F1/LDC1612 physical root cause has been eliminated.
+
+For the lower-layer source audit and the exact point where M_Bamboo intentionally stops MCU ownership, see [Sovol STM32F1 I2C / Eddy Root-Cause Audit](I2C_ROOT_CAUSE_AND_HOST_BOUNDARY.md).
 
 ## Why this document exists
 
@@ -65,6 +67,8 @@ Early R3F runs reproduced transport faults and, in one 10 ms run, a transaction 
 HF1 added structured logging and showed an important negative result: some failures happened during PREARM before any measurement lifecycle had started. In those cases there was no ADD_CLIENT/START/BATCH/STOP sequence to blame.
 
 HF2 fixed logger lifecycle behavior and automatic terminal stop, but exposed a separate host-side stale-transaction cleanup defect: after a real transport fault and a successful LDC stream STOP, a later `pull_probed()` / sample-finalization exception could leave `_active_transaction` stale. That contaminated the recovery classification. This was fixed in HF2.1 by making terminal transaction cleanup cover the entire post-transaction sample-finalization / acceptance stage.
+
+The RC5 production audit later found that this HF2.1 whole-terminal cleanup had not been fully carried into the RC4 production backend. Productionizing that proven cleanup, and applying the same terminal rule to rapid scan, is therefore an RC5 P0 correctness item.
 
 ### HF2.1 final matrix
 
@@ -165,18 +169,31 @@ HF2.1 traces showed that fault containment could return the active periodic stre
 
 ### Failed transaction is never retried
 
-The transaction that observed a bed-facing fault is aborted. Recovery, when allowed, is a fresh health-check plus a fresh Safe Home Z homing transaction, never a replay of the failed probe/homing transaction.
+The transaction that observed a bed-facing fault is aborted. Recovery, when allowed, is a fresh health-check plus a fresh Safe Home Z homing transaction when required, never a replay of the failed probe/homing transaction.
 
-## RC5 recovery policy target
+## RC5 START_PRINT automatic-recovery policy target
 
-RC5 distinguishes a *fault episode* from a whole Klipper session:
+RC5 distinguishes a fault episode from a whole Klipper session or whole print start.
 
-1. Within one fault episode, allow at most **one** armed Z recovery transaction.
-2. If that armed recovery fails, stop automatic recovery and require `FIRMWARE_RESTART` / operator intervention.
-3. If recovery succeeds, transport returns to `HEALTHY` and Z trust is rebuilt. A later, genuinely new fault may begin a new recovery episode.
-4. Add a session / print-start budget so repeated independent faults cannot create an unlimited automatic-recovery loop. Initial RC5 target: **MAX_AUTO_RECOVERIES=3**, **MAX_CONSECUTIVE_AUTO_RECOVERIES=1**.
+Current design target:
 
-The exact budget is a host-side policy knob and should be validated before RC5 is declared stable.
+```text
+MAX_START_AUTO_RECOVERIES = 3
+MAX_RECOVERY_ATTEMPTS_PER_EPISODE = 1
+```
+
+The important semantics are:
+
+1. Within one fault episode, allow at most **one** armed Z recovery transaction when Z trust needs rebuilding.
+2. If that armed recovery fails, automatic recovery stops immediately. Remaining total budget does not authorize a second blind G28 for that same episode.
+3. If recovery succeeds, the **failed atomic startup stage must then complete successfully** before that episode is considered closed.
+4. A second transport fault before the recovered stage reaches a clean completion checkpoint is treated as continued instability of the same stage and must stop rather than enter another recovery loop.
+5. Only a genuinely later fault after clean stage completion may begin a new independent recovery episode and consume another total-budget slot.
+6. The total start budget prevents a sequence of individually recoverable faults from continuing indefinitely.
+
+This policy is stricter than simply counting new fault-sequence numbers. It requires observable workflow progress between automatic recovery episodes.
+
+The numeric total budget remains a host-side policy target until the RC5 hardware fault-injection matrix validates it.
 
 ## What the statistics do NOT prove
 
@@ -186,6 +203,7 @@ The current data does not prove:
 - that PREARM eliminates faults which occur after active motion starts;
 - that the underlying physical / STM32F1 / LDC1612 root cause is fully known;
 - that a power cycle is required for recovery;
-- that the communication fault is purely electrical or purely software.
+- that the communication fault is purely electrical or purely software;
+- that the current design target of three recovered startup episodes is the final optimal release value.
 
-The evidence *does* support retaining fail-closed bed-facing safety gates and bounded recovery while the lower-level Sovol I2C behavior is audited.
+The evidence **does** support retaining fail-closed bed-facing safety gates, deterministic lifecycle cleanup, strict failed-transaction invalidation, and bounded checkpoint-based recovery while the lower-level Sovol I2C behavior remains outside M_Bamboo's modification boundary.
