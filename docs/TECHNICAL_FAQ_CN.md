@@ -26,11 +26,11 @@ raw34 = 34 = NACK | BUSY
 raw36 = 36 = TIMEOUT | BUSY
 ```
 
-Bitmask 本身是有价值的，因为它可以同时告诉我们 transaction symptom 和当时的 bus-state evidence。M_Bamboo 会解析完整 bitmask，不会只 special-case 某一个数字。
+Bitmask 本身是有价值的，因为它可以同时保留 transaction symptom 和当时的 bus-state evidence。M_Bamboo 会解析完整 bitmask，不会只 special-case 某一个数字。
 
 ## Sovol 的 I2C error definition 本身写错了吗？
 
-不能简单这么说。`I2C_BUS_*` enum 更合理的理解是**bit position**。真正的问题是：error model 已经迁移成 bitmask，但部分 MCU consumer 仍使用旧的 scalar comparison，例如概念上的：
+不能简单这么说。`I2C_BUS_*` enum 更合理的理解是 **bit position**。真正的问题是：error model 已经迁移成 bitmask，但部分 MCU consumer 仍然使用旧的 scalar comparison，例如概念上的：
 
 ```c
 if (ret == I2C_BUS_BUSY)
@@ -42,7 +42,7 @@ BUSY 在 bitmask 中对应 bit 5，也就是 `32`，并不是 scalar `5`。因�
 
 ## `i2c_busy_errata()` 的 pin lookup 问题是什么？
 
-Sovol 的 BUSY recovery helper 手里只有 I2C peripheral pointer，于是试图用 `container_of` 反查当前 bus 的 SCL/SDA metadata。
+Sovol 的 BUSY recovery helper 手里只有 I2C peripheral pointer，于是尝试用 `container_of` 反查当前 bus 的 SCL/SDA metadata。
 
 但它拿到的是结构体成员**里面存放的 peripheral address**，并不是这个成员本身的地址。结果是代码把 STM32 I2C peripheral register block 当成了 `struct i2c_info`。
 
@@ -54,7 +54,7 @@ M_Bamboo 会记录这个 finding，但不会修 firmware，也不会接管 physi
 
 ## 为什么 I2C fault 会变成 Eddy safety 问题？
 
-真正关键的不是“不 shutdown”，而是**failed transaction 有没有被严格判死**。
+真正关键的不是“不 shutdown”，而是 **failed transaction 有没有被严格判死**。
 
 在审计到的 STM32F1 路径里，I2C fault 可以被上报，但失败结果并没有在所有 LDC path 上形成严格的 sample/transaction invalid contract。后续代码仍可能继续产生或消费数据。
 
@@ -130,7 +130,7 @@ RC5 会在现有 Eddy Safety Core 上方增加一个很小的 startup coordinato
 
 1. 清理 / quarantine failed Eddy lifecycle；
 2. 不做 Z motion，先重新验证 transport health；
-3. 如果 Z trust 已经丢失，只执行一次 fresh armed Safe Home；
+3. 如果 Z trust 需要重建，则执行一次 fresh Safe Home：active bed-facing fault 必须使用 Safety Core 的 one-shot armed token；如果 PREARM 在 motion 前拦住 fault、transport 已恢复 HEALTHY，但 owning stage 自己撤销了 Z homing，则走普通 PREARM-protected Safe Home，不强行要求 armed token；
 4. 恢复当前 startup stage 自己留下的 temporary state；
 5. 从头重跑完整 failed atomic stage；
 6. 只有 stage 完整成功后，`START_PRINT` 才继续往下走。
@@ -139,13 +139,26 @@ RC5 会在现有 Eddy Safety Core 上方增加一个很小的 startup coordinato
 
 不是 blind retry。Recovery 有明确边界：
 
-- **同一个 fault episode 最多一次 armed Z recovery**；
-- 这一次 recovery 失败，立即 terminal，不会自动继续第二次 / 第三次 G28；
+- **active-fault episode 同一个 Z recovery 最多只 armed 一次**；
+- 这一次 armed recovery 失败，立即 terminal，不会自动继续第二次 / 第三次 G28；
 - 只有恢复后的 atomic stage 已经完整成功，后续新 fault 才有资格成为新的 episode；
 - 整个 `START_PRINT` 还有总 recovery budget，反复故障最终必须停下来检查；
-- 非 Eddy error，或者当前 stage 内没有出现新的 transport fault sequence 的错误，不会被 coordinator 当作通讯故障吞掉。
+- 非 Eddy error 不会被 coordinator 当成通讯故障吞掉。
 
 当前设计目标是一次 `START_PRINT` 最多允许 **3 个已经成功恢复的独立 fault episode**，最终默认值仍要经过 RC5 实机 fault-injection 才冻结。
+
+## Coordinator 怎么知道 fault 是当前 stage 新发生的，而不是旧状态？
+
+不能只看 error message，也不能因为 Safety Core 历史上曾经 latch 过 `HARD_COMM_FAULT` 就自动进入 recovery。
+
+每个 atomic stage 开始前会同时 snapshot 两个 monotonic marker：
+
+- `transport_fault_seq`：收到新的 asynchronous I2C transport evidence 时增加；
+- `preflight_failed_count`：PREARM 的 bounded readiness window 全部耗尽时增加，包括“identity/readiness 一直失败，但没有新的 async I2C report”这种情况。
+
+一个 caught stage error 只有在 Safety Core 认为当前 fault 可以 recovery，并且这两个 marker 至少有一个在**当前 stage 内**发生增长时，才允许自动进入 Eddy recovery。
+
+这样既能接住真实 raw transport fault，也不会漏掉 `PREARM_NOT_READY`；同时不需要解析 error string，也不会把普通 QGL / Macro / configuration error 或 stale historical state 错吞掉。
 
 ## 为什么 recovery 后要重跑完整 stage，而不是只 retry 刚才失败的 Probe？
 
@@ -168,7 +181,15 @@ QGL fault 就整段 QGL 重跑；mesh fault 就从头重新扫网格；Z calibra
 
 普通 Klipper macro 不是 exception-resumable workflow。Nested command 抛 `command_error` 后，当前 macro chain 会 unwind；如果异常继续穿透到 `virtual_sdcard`，打印文件会停止并进入 error state。
 
-所以 coordinator 只负责 Eddy-sensitive startup checkpoint，并在 eligible transport fault 穿透 top-level `START_PRINT` 之前接住。它不会重新实现 QGL、mesh、Safe Home 或 Z calibration。
+所以 coordinator 只负责 Eddy-sensitive startup checkpoint，并在 eligible transport / PREARM fault 穿透 top-level `START_PRINT` 之前接住。它不会重新实现 QGL、mesh、Safe Home 或 Z calibration。
+
+## 为什么 managed START sequence 的 MESH stage 直接调用 `BED_MESH_CALIBRATE_BASE`？
+
+现有 `BED_MESH_CALIBRATE` wrapper 自己也在做 dependency orchestration：`has_z_offset_calibrated` 为 false 时会补做 homing / Z calibration，QGL 未 applied 时会补跑 QGL，而且它还会临时改 `square_corner_velocity`。
+
+在 RC5 managed start core 里，这些 dependency 已经由 coordinator 负责。如果再调用 wrapper，就会出现两个 workflow owner。
+
+因此 RC5 的 MESH stage 会自己确认前置 checkpoint，保存 / 恢复真实 SCV，然后用相同 adaptive rapid-scan 参数直接调用现有 renamed mesh implementation。原来的 wrapper 不删除，用户单独手动执行 `BED_MESH_CALIBRATE` 时仍按原行为工作。
 
 ## START recovery 需要清理哪些状态？
 
@@ -177,7 +198,7 @@ QGL fault 就整段 QGL 重跑；mesh fault 就从头重新扫网格；Z calibra
 目前至少包括：
 
 - `has_z_offset_calibrated`；
-- mesh wrapper 临时修改的 `square_corner_velocity`；
+- mesh scan 临时修改的 `square_corner_velocity`；
 - 当前 Z homing / trust state；
 - active Eddy transaction / scan session pointer；
 - sensor client / bulk stream lifecycle；
@@ -198,7 +219,10 @@ RC5 要求 success、recoverable failure 和 hard failure 三条出口都执行 
     当前 homed_axes 已经不包含 Z
 ```
 
-这样既不会破坏 PREARM 的“没有发生下探”语义，也不会相信已经被 Z calibration 自己撤销的 temporary Z state。
+这里又分两种安全路径：
+
+- active bed-facing fault -> transport 进入 `TRANSPORT_RECOVERED`，必须消费 one-shot armed Safe Home token；
+- PREARM 在 motion 前拦住 fault，但 ZCAL 自己撤销了 homing -> transport 已经可以回到 `HEALTHY`，此时走一次普通的 PREARM-protected fresh Safe Home 即可，不应该因为没有 armed token 而锁死。
 
 ## 为什么 transport fault 后要 quarantine LDC stream？
 
@@ -210,7 +234,7 @@ Quarantine 强制停止 active stream，给 recovery 建立一个 clean lifecycl
 
 HF2 实机测试抓到过这种情况：motion 已经停止，LDC stream/client 也已经清掉，但 `pull_probed()` 在后面等待 sample 时才抛 `sensor outage`。RC4 production 在这个路径上可能留下 stale `_active_transaction`，导致后续 recovery 被软件状态挡住。
 
-RC5 会把 HF2.1 的 whole-terminal-lifecycle cleanup 正式带回 production，并把同一原则补到 rapid scan。
+RC5 会把 HF2.1 的 whole-terminal-lifecycle cleanup 正式带回 production，把同一原则补到 rapid scan，并保证 Eddy calibration movement 异常退出时也 deterministic remove client。
 
 ## QGL 已经成功后，如果后面的 mesh fault 导致 fresh G28，需要重新 QGL 吗？
 
@@ -250,7 +274,7 @@ RC5 仍然会明确从头重跑整个 mesh stage。
 - 强化 PREARM 的价值；
 - 证明 transport recovery、failed transaction validity 和 Z trust 必须分开。
 
-完整统计和 experiment chronology 放在 [RC5 Test Evidence](RC5_TEST_EVIDENCE.md)，FAQ 不重复整张 matrix。
+完整统计和 experiment chronology 放在 [RC5 测试证据](RC5_TEST_EVIDENCE_CN.md)，FAQ 不重复整张 matrix。
 
 ## PLR 属于 RC5 吗？
 
@@ -259,6 +283,6 @@ RC5 仍然会明确从头重跑整个 mesh stage。
 ## 建议继续阅读
 
 - [Sovol STM32F1 I2C / Eddy 根因审计](I2C_ROOT_CAUSE_AND_HOST_BOUNDARY_CN.md) — low-level source findings 与项目 cut line。
-- [RC5 START Recovery Design](RC5_START_RECOVERY_DESIGN.md) — checkpoint / recovery architecture。
-- [RC5 Test Evidence](RC5_TEST_EVIDENCE.md) — 完整 statistics 与 evidence limits。
+- [RC5 START 自动恢复设计](RC5_START_RECOVERY_DESIGN_CN.md) — checkpoint / recovery architecture。
+- [RC5 测试证据](RC5_TEST_EVIDENCE_CN.md) — 完整 statistics 与 evidence limits。
 - [Eddy Safety Engineering Design](ES_R4_ENGINEERING_CANDIDATE.md) — transaction / transport safety internals。
