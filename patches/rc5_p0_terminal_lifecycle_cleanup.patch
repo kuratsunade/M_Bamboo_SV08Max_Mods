@@ -1,0 +1,277 @@
+--- a/backend/probe_eddy_current.py
++++ b/backend/probe_eddy_current.py
+@@ -93,49 +93,58 @@
+         toolhead = self.printer.lookup_object('toolhead')
+         kin = toolhead.get_kinematics()
+         move = toolhead.manual_move
+-        # Start data collection
++        # Start data collection.  This client must be removed on every exit
++        # path; otherwise a failed calibration can leave the periodic LDC
++        # stream owned by an already-aborted calibration transaction.
+         msgs = []
+         is_finished = False
++        calibration_started = False
+         def handle_batch(msg):
+             if is_finished:
+                 return False
+             msgs.append(msg)
+             return True
+-        self.printer.lookup_object(self.name).add_client(handle_batch)
+-        toolhead.dwell(1.)
+-        self.drift_comp.note_z_calibration_start()
+-        # Move to each 40um position
+-        max_z = 4.0
+-        samp_dist = 0.040
+-        req_zpos = [i*samp_dist for i in range(int(max_z / samp_dist) + 1)]
+-        start_pos = toolhead.get_position()
+-        times = []
+-        for zpos in req_zpos:
+-            # Move to next position (always descending to reduce backlash)
+-            next_pos = list(start_pos)
+-            next_pos[2] += zpos
+-            move(next_pos, move_speed)
+-            # Note sample timing
+-            start_query_time = toolhead.get_last_move_time() + 0.050
+-            end_query_time = start_query_time + 0.050
+-            toolhead.dwell(0.060)
+-            # Find Z position based on actual commanded stepper position
+-            toolhead.flush_step_generation()
+-            kin_spos = {s.get_name(): s.get_commanded_position()
+-                        for s in kin.get_steppers()}
+-            kin_pos = kin.calc_position(kin_spos)
+-            times.append((start_query_time, end_query_time, kin_pos[2]))
+-        toolhead.dwell(1.0)
+-        toolhead.wait_moves()
+-        self.drift_comp.note_z_calibration_finish()
+-        # Finish data collection deterministically.  Do not wait for a
+-        # future successful batch to unregister this client.
+-        is_finished = True
+         sensor = self.printer.lookup_object(self.name)
+-        remover = getattr(sensor, 'remove_client', None)
+-        if remover is not None:
+-            remover(handle_batch)
+-        # Correlate query responses
++        sensor.add_client(handle_batch)
++        try:
++            toolhead.dwell(1.)
++            self.drift_comp.note_z_calibration_start()
++            calibration_started = True
++            # Move to each 40um position
++            max_z = 4.0
++            samp_dist = 0.040
++            req_zpos = [i*samp_dist for i in range(int(max_z / samp_dist) + 1)]
++            start_pos = toolhead.get_position()
++            times = []
++            for zpos in req_zpos:
++                # Move to next position (always descending to reduce backlash)
++                next_pos = list(start_pos)
++                next_pos[2] += zpos
++                move(next_pos, move_speed)
++                # Note sample timing
++                start_query_time = toolhead.get_last_move_time() + 0.050
++                end_query_time = start_query_time + 0.050
++                toolhead.dwell(0.060)
++                # Find Z position based on actual commanded stepper position
++                toolhead.flush_step_generation()
++                kin_spos = {s.get_name(): s.get_commanded_position()
++                            for s in kin.get_steppers()}
++                kin_pos = kin.calc_position(kin_spos)
++                times.append((start_query_time, end_query_time, kin_pos[2]))
++            toolhead.dwell(1.0)
++            toolhead.wait_moves()
++        finally:
++            # Preserve the calibration lifecycle boundary even when motion,
++            # transport, or sample collection fails before normal completion.
++            try:
++                if calibration_started:
++                    self.drift_comp.note_z_calibration_finish()
++            finally:
++                is_finished = True
++                remover = getattr(sensor, 'remove_client', None)
++                if remover is not None:
++                    remover(handle_batch)
++        # Correlate query responses only after collection ended cleanly.
+         cal = {}
+         step = 0
+         for msg in msgs:
+@@ -1451,39 +1460,69 @@
+                    self._raw_diag_text()))
+             self._active_transaction = None
+             raise
+-        self._require_transaction_transport_clean(tx, 'PROBE')
+-        if not self._trigger_time:
+-            final = list(toolhead.get_position())
++        try:
++            # HF2.1 / RC5: motion completion is not transaction completion.
++            # Sample finalization and final transport acceptance can still fail
++            # after HomingMove has returned, so they share one terminal guard.
++            self._require_transaction_transport_clean(tx, 'PROBE')
++            if not self._trigger_time:
++                final = list(toolhead.get_position())
++                tx['final'] = final
++                tx['result'] = 'NO_TRIGGER'
++                tx['descent'] = start_pos[2] - final[2]
++                self._last_probe = self._snapshot_transaction(tx)
++                return trig_pos
++            start_time = self._trigger_time + 0.050
++            end_time = start_time + 0.100
++            toolhead_pos = toolhead.get_position()
++            self._gather.note_probe(start_time, end_time, toolhead_pos)
++            method = (_ProbeType.TYPE_DEFAULT if non_contact_probe
++                      else _ProbeType.TYPE_VIR_TOUCH)
++            result = self._gather.pull_probed(probe_method=method)[0]
++            self._require_transaction_transport_clean(tx, 'PROBE')
++            final = list(result)
+             tx['final'] = final
+-            tx['result'] = 'NO_TRIGGER'
++            tx['result'] = 'SUCCESS'
++            tx['state'] = 'SUCCESS'
+             tx['descent'] = start_pos[2] - final[2]
++            self._trace_event(tx, 'SUCCESS', mode)
++            if non_contact_probe:
++                self._note_trusted_probe_trigger(final[2])
+             self._last_probe = self._snapshot_transaction(tx)
+-            self._active_transaction = None
+-            return trig_pos
+-        start_time = self._trigger_time + 0.050
+-        end_time = start_time + 0.100
+-        toolhead_pos = toolhead.get_position()
+-        self._gather.note_probe(start_time, end_time, toolhead_pos)
+-        method = (_ProbeType.TYPE_DEFAULT if non_contact_probe
+-                  else _ProbeType.TYPE_VIR_TOUCH)
+-        result = self._gather.pull_probed(probe_method=method)[0]
+-        self._require_transaction_transport_clean(tx, 'PROBE')
+-        final = list(result)
+-        tx['final'] = final
+-        tx['result'] = 'SUCCESS'
+-        tx['state'] = 'SUCCESS'
+-        tx['descent'] = start_pos[2] - final[2]
+-        self._trace_event(tx, 'SUCCESS', mode)
+-        if non_contact_probe:
+-            self._note_trusted_probe_trigger(final[2])
+-        self._last_probe = self._snapshot_transaction(tx)
+-        self._diag(
+-            1, "%s TRIGGER OK result=%s descent=%.3f %s"
+-            % (self._tx_prefix(tx), self._format_pos(final),
+-               tx['descent'],
+-               self._raw_diag_text() if self._diagnostic_level >= 2 else ''))
+-        self._active_transaction = None
+-        return result
++            self._diag(
++                1, "%s TRIGGER OK result=%s descent=%.3f %s"
++                % (self._tx_prefix(tx), self._format_pos(final),
++                   tx['descent'],
++                   self._raw_diag_text() if self._diagnostic_level >= 2 else ''))
++            return result
++        except self._printer.command_error as e:
++            # A late sample outage/no-reading error must leave a terminal
++            # transaction, not a stale ACTIVE/HALT_RECONSTRUCTED guard.
++            final = list(toolhead.get_position())
++            tx['final'] = final
++            tx['fault_seq_end'] = self._transport_seq()
++            if tx.get('state') != 'ABORTED':
++                tainted = (tx.get('transport_tainted') or
++                           tx['fault_seq_end'] != tx.get('fault_seq_start',
++                                                         tx['fault_seq_end']))
++                if tainted:
++                    tx['transport_tainted'] = True
++                    tx['result'] = self._fault_reason or 'TRANSPORT_FAULT'
++                else:
++                    tx['result'] = str(e) or 'COMMAND_ERROR'
++                tx['state'] = 'ABORTED'
++                tx['descent'] = start_pos[2] - final[2]
++                self._trace_event(tx, 'COMMAND_ERROR', tx['result'])
++                self._last_probe = self._snapshot_transaction(tx)
++                self._diag(
++                    0, "%s LATE FAILURE result=%s final=%s descent=%.3f %s"
++                    % (self._tx_prefix(tx), tx['result'],
++                       self._format_pos(final), tx['descent'],
++                       self._raw_diag_text()))
++            raise
++        finally:
++            if self._active_transaction is tx:
++                self._active_transaction = None
+ 
+     def probing_move(self, pos, speed):
+         return self._run_logged_probe(pos, speed, True)
+@@ -1539,30 +1578,59 @@
+         start_time = printtime + self._sample_time_delay
+         self._gather.note_probe_and_position(
+             start_time, start_time + self._sample_time, start_time)
+-    def pull_probed_results(self):
+-        self._safety._require_transaction_transport_clean(self._tx, 'SCAN')
+-        if self._is_rapid:
+-            # Flush lookahead (so all lookahead callbacks are invoked)
+-            toolhead = self._printer.lookup_object("toolhead")
+-            toolhead.get_last_move_time()
+-        results = self._gather.pull_probed()
+-        self._safety._require_transaction_transport_clean(self._tx, 'SCAN')
+-        self._tx['state'] = 'SUCCESS'
+-        self._tx['result'] = 'SUCCESS'
+-        self._safety._trace_event(self._tx, 'SUCCESS', 'scan')
+-        self._safety._last_probe = self._safety._snapshot_transaction(self._tx)
+-        if self._safety._active_transaction is self._tx:
++    def _terminalize_failure(self, reason):
++        tx = self._tx
++        tx['fault_seq_end'] = self._safety._transport_seq()
++        if tx.get('state') != 'ABORTED':
++            tainted = (tx.get('transport_tainted') or
++                       tx['fault_seq_end'] != tx.get('fault_seq_start',
++                                                     tx['fault_seq_end']))
++            if tainted:
++                tx['transport_tainted'] = True
++                tx['result'] = self._safety._fault_reason or 'TRANSPORT_FAULT'
++            else:
++                tx['result'] = reason or 'COMMAND_ERROR'
++            tx['state'] = 'ABORTED'
++            self._safety._trace_event(tx, 'COMMAND_ERROR', tx['result'])
++        self._safety._last_probe = self._safety._snapshot_transaction(tx)
++        if self._safety._active_transaction is tx:
+             self._safety._active_transaction = None
+-        # Allow axis_twist_compensation to update results
+-        for epos in results:
+-            self._printer.send_event("probe:update_results", epos)
+-        return results
++
++    def pull_probed_results(self):
++        try:
++            self._safety._require_transaction_transport_clean(self._tx, 'SCAN')
++            if self._is_rapid:
++                # Flush lookahead (so all lookahead callbacks are invoked)
++                toolhead = self._printer.lookup_object("toolhead")
++                toolhead.get_last_move_time()
++            results = self._gather.pull_probed()
++            self._safety._require_transaction_transport_clean(self._tx, 'SCAN')
++            self._tx['state'] = 'SUCCESS'
++            self._tx['result'] = 'SUCCESS'
++            self._safety._trace_event(self._tx, 'SUCCESS', 'scan')
++            self._safety._last_probe = self._safety._snapshot_transaction(self._tx)
++            if self._safety._active_transaction is self._tx:
++                self._safety._active_transaction = None
++            # Allow axis_twist_compensation to update results
++            for epos in results:
++                self._printer.send_event("probe:update_results", epos)
++            return results
++        except self._printer.command_error as e:
++            # Scan sample finalization can fail after all motion/lookahead has
++            # completed.  Make that terminal at the transaction layer too.
++            self._terminalize_failure(str(e))
++            raise
+     def end_probe_session(self):
+-        if self._gather is not None:
+-            self._gather.finish()
++        try:
++            if self._gather is not None:
++                self._gather.finish()
++        finally:
+             self._gather = None
+-        if self._safety._active_scan_session is self:
+-            self._safety._active_scan_session = None
++            if self._safety._active_scan_session is self:
++                self._safety._active_scan_session = None
++            if (self._tx.get('state') != 'SUCCESS'
++                    and self._safety._active_transaction is self._tx):
++                self._terminalize_failure('SCAN_SESSION_ENDED_BEFORE_ACCEPTANCE')
+ 
+ # Main "printer object"
+ class PrinterEddyProbe:
