@@ -202,8 +202,8 @@ SV08 Max 包含 Sovol 自己的 Eddy contact、MCU command、Z calibration、触
 - **[版本记录](RELEASE_NOTES_CN.md)** — release 历史、范围与已知限制。
 - **[技术 FAQ](docs/TECHNICAL_FAQ_CN.md)** — 当前有效的安全 / recovery 设计依据与 fault 解释。
 - **[Sovol I2C / Eddy 根因审计](docs/I2C_ROOT_CAUSE_AND_HOST_BOUNDARY_CN.md)** — 源码历史、bitmask、BUSY pin lookup、失败数据边界，以及 M_Bamboo 明确 cut tie 的位置。
-- **[RC5 START Recovery Design](docs/RC5_START_RECOVERY_DESIGN.md)** — atomic stage、recovery ownership、dependency handling 与 validation requirements。
-- **[RC5 Test Evidence](docs/RC5_TEST_EVIDENCE.md)** — 完整测试统计、fault context、recovery 结果、被修正的假设与证据边界。
+- **[RC5 START 自动恢复设计](docs/RC5_START_RECOVERY_DESIGN_CN.md)** — atomic stage、recovery ownership、dependency handling 与 validation requirements。
+- **[RC5 测试证据](docs/RC5_TEST_EVIDENCE_CN.md)** — 完整测试统计、fault context、recovery 结果、被修正的假设与证据边界。
 - **[Eddy Safety Engineering Design](docs/ES_R4_ENGINEERING_CANDIDATE.md)** — transport-fault architecture 与 transaction safety model。
 - **[实机验证指南](docs/HARDWARE_VALIDATION.md)** — 实机验证顺序和 pass/fail criteria。
 - **[部署与恢复](docs/DEPLOYMENT_AND_ROLLBACK.md)** — installer transaction、provenance 与 restore 机制。
