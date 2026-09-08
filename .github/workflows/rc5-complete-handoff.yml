@@ -1,0 +1,90 @@
+name: RC5 Complete Development Handoff
+
+on:
+  push:
+    branches:
+      - rc5-dev
+    paths:
+      - 'docs/RC5_COMPLETE_HANDOFF.md'
+      - '.github/workflows/rc5-complete-handoff.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-handoff:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact rc5-dev commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build complete repository handoff payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$PWD"
+          STAGE="/tmp/M_Bamboo_SV08Max_RC5_Complete_Handoff_2026-09-08"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE/repository"
+
+          rsync -a \
+            --exclude='.git/' \
+            "$ROOT/" "$STAGE/repository/"
+
+          cat > "$STAGE/HANDOFF_PACKAGE_INFO.txt" <<EOF
+          M_Bamboo_SV08Max_Mods RC5 Complete Development Handoff
+          Date: 2026-09-08
+          Branch: rc5-dev
+          Commit: ${GITHUB_SHA}
+          Status: DEVELOPMENT CANDIDATE - NOT PUBLIC RELEASE
+
+          Start here:
+            repository/docs/RC5_COMPLETE_HANDOFF.md
+
+          This package contains the complete repository tree from the exact
+          rc5-dev commit above, excluding only Git's internal .git directory.
+
+          User-supplied private source archives/logs used during development are
+          intentionally NOT represented as embedded unless committed in the repo.
+          See RC5_COMPLETE_HANDOFF.md for the external-evidence list.
+          EOF
+
+          (
+            cd "$STAGE"
+            find . -type f ! -name SHA256SUMS -print0 \
+              | sort -z \
+              | xargs -0 sha256sum > SHA256SUMS
+          )
+
+          ZIP="/tmp/M_Bamboo_SV08Max_RC5_Complete_Handoff_2026-09-08.zip"
+          rm -f "$ZIP"
+          (
+            cd /tmp
+            zip -qr "$ZIP" "$(basename "$STAGE")"
+          )
+          sha256sum "$ZIP" | tee /tmp/M_Bamboo_SV08Max_RC5_Complete_Handoff_2026-09-08.zip.sha256
+
+      - name: Verify package contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          unzip -t /tmp/M_Bamboo_SV08Max_RC5_Complete_Handoff_2026-09-08.zip
+          unzip -l /tmp/M_Bamboo_SV08Max_RC5_Complete_Handoff_2026-09-08.zip \
+            | grep 'repository/docs/RC5_COMPLETE_HANDOFF.md'
+          unzip -l /tmp/M_Bamboo_SV08Max_RC5_Complete_Handoff_2026-09-08.zip \
+            | grep 'repository/backend/probe_eddy_current.py'
+          unzip -l /tmp/M_Bamboo_SV08Max_RC5_Complete_Handoff_2026-09-08.zip \
+            | grep 'repository/install.sh'
+
+      - name: Upload complete handoff artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC5-complete-development-handoff-2026-09-08
+          path: |
+            /tmp/M_Bamboo_SV08Max_RC5_Complete_Handoff_2026-09-08.zip
+            /tmp/M_Bamboo_SV08Max_RC5_Complete_Handoff_2026-09-08.zip.sha256
+          if-no-files-found: error
+          retention-days: 90
