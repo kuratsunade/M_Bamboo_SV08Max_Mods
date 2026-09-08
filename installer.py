@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""M_Bamboo SV08 Max RC4 release installer.
+"""M_Bamboo SV08 Max RC5 development installer.
 
 Release policy v2:
 - config files have NO persistent backup; every managed mutation is reversible;
@@ -11,7 +11,7 @@ import argparse, difflib, hashlib, json, os, py_compile, re, shutil, subprocess,
 from pathlib import Path
 
 PROJECT = "M_Bamboo_SV08Max_Mods"
-PROJECT_RELEASE = "1.0.0-rc4"
+PROJECT_RELEASE = "1.0.0-rc5-dev"
 SAFETY_VERSION = "ES-R4-EC2-FS1.1"
 NS = "M_Bamboo_SV08MAX_MOD"
 SAVE_MARKER = "#*# <---------------------- SAVE_CONFIG ---------------------->"
@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent
 
 BACKEND_TARGETS = {
     "ldc1612.py": "aa25833c27367905c68f27dfa6e4d669ddfe304bdaa23febee8287737f757e04",
-    "probe_eddy_current.py": "6b82c2a057746cd83ee46e02835e5b392e1ceba9c731d4984b98c1f75c63295e",
+    "probe_eddy_current.py": "5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29",
     "probe.py": "227d0c6b8527ece1793caf969d5292646ec185f65ca1c679ccf4195515dd529a",
     "M_Bamboo_Safe_Homing.py": "5f85a1a397413a7ab5da28d2b19b586a6d371b49a4793b80bc685d5adb0f9038",
     "z_offset_calibration.py": "1089df132131010f774d40b331fef4ff6ba02252f4b55c107846c6cc0a7a75ce",
@@ -59,6 +59,8 @@ KNOWN_MB_SOURCES = {
         "1dd933700671d6b80709d9f55279f78630d031a8b440d5a71ddbe8f5de3b26e6",
         "c9626c6233faf4a06dc036569ea892ec5b85788db31eae512ba44d40cbda112c",
         "6b82c2a057746cd83ee46e02835e5b392e1ceba9c731d4984b98c1f75c63295e",
+        # DEV_ONLY_MIGRATION_SOURCE: 2026-09-08 hardware-tested RC5 candidate
+        "dcb78d4d7d5108236eca23a225e6e582e1b128419bf10c8a5b83cf8de346ced0",
     },
     "probe.py": {
         "498b3b607a39be5988005a5b334872e9e7c14b5cd66b719e07bb61c169991e14",
@@ -161,7 +163,7 @@ def replace_keys_block(text, section, keys, block, tag, accepted):
         end=max(ends)
         # Only permit whitespace/comments between first and last managed keys if keys are adjacent.
         between=sec[start:end]
-        unmanaged=[ln for ln in between.splitlines() if ':' in ln and not any(re.match(rf'^\s*{re.escape(k)}\s*:',ln) for k in keys)]
+        unmanaged=[ln for ln in between.splitlines() if ln.strip() and not ln.lstrip().startswith('#') and ':' in ln and not any(re.match(rf'^\s*{re.escape(k)}\s*:',ln) for k in keys)]
         if unmanaged: raise RuntimeError(f"Managed keys in [{section}] are not safely contiguous")
         sec=sec[:start]+block.rstrip()+"\n"+sec[end:]
     return text[:a]+sec+text[b:]
@@ -228,24 +230,30 @@ def target_macro(text, safe=True, optimize=True):
             m=re.search(r'(?m)^\s*BED_MESH_CALIBRATE_BASE\s+ADAPTIVE=1\s+PGP=[01]\s+METHOD=rapid_scan\s*$',text)
             if not m: raise RuntimeError('Could not locate adaptive mesh line')
             text=text[:m.start()]+load('release/config/bed_mesh_adaptive.block').rstrip()+text[m.end():]
-        # START_PRINT: replace the stock first calibration pair / managed block; insert final after BED_MESH_CALIBRATE.
+        # START_PRINT: one managed dual-path core.  Existing RC5 core is replaced
+        # directly; recognized RC4 PRE/POST lineage is collapsed into the core.
         ssp=section_span(text,'gcode_macro START_PRINT')
         if not ssp: raise RuntimeError('Missing [gcode_macro START_PRINT]')
         a,b=ssp; sec=text[a:b]
-        sp=managed_span(sec,'CONFIG_START_PRINT_PRE_QGL') or managed_span(sec,'START_PRINT_PRE_QGL')
-        if sp: sec=replace_span(sec,sp,load('release/config/start_print_pre.block'))
+        core=managed_span(sec,'CONFIG_START_PRINT_CORE')
+        if core:
+            sec=replace_span(sec,core,load('release/config/start_print_core.block'))
         else:
-            pat=re.compile(r'(?m)^\s*SET_VELOCITY_LIMIT ACCEL=(?:40000|15000) ACCEL_TO_DECEL=(?:10000|7500)\s*$\n^\s*Z_OFFSET_CALIBRATION METHOD=force_overlay BED_TEMP=\{printer\.heater_bed\.target\}(?: USE_CURRENT_Z=1 ZDBG=1)?\s*$')
-            m=pat.search(sec)
-            if not m: raise RuntimeError('Could not locate START_PRINT pre-QGL lines')
-            sec=sec[:m.start()]+load('release/config/start_print_pre.block').rstrip()+sec[m.end():]
-        sp=managed_span(sec,'CONFIG_START_PRINT_POST_MESH') or managed_span(sec,'START_PRINT_POST_MESH_Z_OFFSET')
-        if sp: sec=replace_span(sec,sp,load('release/config/start_print_post.block'))
-        elif 'USE_CURRENT_Z_ALLOWANCE=1.25' not in sec:
-            m=re.search(r'(?m)^\s*BED_MESH_CALIBRATE\s*$',sec)
-            if not m: raise RuntimeError('Could not locate BED_MESH_CALIBRATE in START_PRINT')
-            e=sec.find('\n',m.end()); e=len(sec) if e<0 else e+1
-            sec=sec[:e]+load('release/config/start_print_post.block')+sec[e:]
+            pre=managed_span(sec,'CONFIG_START_PRINT_PRE_QGL') or managed_span(sec,'START_PRINT_PRE_QGL')
+            post=managed_span(sec,'CONFIG_START_PRINT_POST_MESH') or managed_span(sec,'START_PRINT_POST_MESH_Z_OFFSET')
+            if not pre or not post:
+                raise RuntimeError('Refusing unknown START_PRINT lineage; expected recognized RC4 PRE/POST blocks or RC5 core')
+            # The recognized RC4 core begins at CLEAN_NOZZLE and ends after the
+            # has_z_offset_calibrated=False line following POST_ZCAL.
+            clean=re.search(r'(?m)^\s*CLEAN_NOZZLE\s*$',sec[:pre[0]])
+            if not clean:
+                raise RuntimeError('Could not locate recognized START_PRINT CLEAN_NOZZLE entry')
+            false_m=re.search(r'(?m)^\s*SET_GCODE_VARIABLE MACRO=_global_var VARIABLE=has_z_offset_calibrated VALUE=False\s*$',sec[post[1]:])
+            if not false_m:
+                raise RuntimeError('Could not locate recognized START_PRINT final calibration flag')
+            rs=clean.start()
+            re_=post[1]+false_m.end()
+            sec=sec[:rs]+load('release/config/start_print_core.block').rstrip()+sec[re_:]
         text=text[:a]+sec+text[b:]
     return text
 

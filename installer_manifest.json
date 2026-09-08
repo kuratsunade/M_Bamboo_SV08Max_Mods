@@ -1,8 +1,8 @@
 {
   "project": "M_Bamboo_SV08Max_Mods",
-  "release": "1.0.0-rc4",
+  "release": "1.0.0-rc5-dev",
   "runtime_safety": "ES-R4-EC2-FS1.1",
-  "status": "release-candidate",
+  "status": "development-candidate",
   "machine": "Sovol SV08 Max 500x500",
   "installer_schema": 2,
   "features": [
@@ -31,7 +31,7 @@
   },
   "backend_targets": {
     "ldc1612.py": "aa25833c27367905c68f27dfa6e4d669ddfe304bdaa23febee8287737f757e04",
-    "probe_eddy_current.py": "6b82c2a057746cd83ee46e02835e5b392e1ceba9c731d4984b98c1f75c63295e",
+    "probe_eddy_current.py": "5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29",
     "probe.py": "227d0c6b8527ece1793caf969d5292646ec185f65ca1c679ccf4195515dd529a",
     "M_Bamboo_Safe_Homing.py": "5f85a1a397413a7ab5da28d2b19b586a6d371b49a4793b80bc685d5adb0f9038",
     "z_offset_calibration.py": "1089df132131010f774d40b331fef4ff6ba02252f4b55c107846c6cc0a7a75ce"
@@ -63,5 +63,14 @@
     "healthy_path": "hardware-validated",
     "natural_raw34_recovery": "one-event-end-to-end-hardware-validated-2026-08-20",
     "real_machine_first_takeover_migration": "factory-mirror-recovery-validated-2026-08-20"
+  },
+  "development_lineage": {
+    "public_release_contract": false,
+    "dev_only_migration_sources": {
+      "probe_eddy_current.py": [
+        "dcb78d4d7d5108236eca23a225e6e582e1b128419bf10c8a5b83cf8de346ced0"
+      ]
+    },
+    "validation_artifact_hashes_are_not_release_lineage": true
   }
 }
