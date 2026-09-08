@@ -7,6 +7,7 @@ on:
       - 'patches/09_rc5_exact_hardware_candidate_alignment.patch'
       - 'patches/10_rc5_rs1_rapid_scan_lifecycle_guard.patch'
       - 'patches/11_rc5_gr1_generic_recovery_supervisor.patch'
+      - '.github/scripts/apply_rc5_gr1.py'
       - '.github/workflows/rc5-materialize-combined-runtime.yml'
   workflow_dispatch:
 
@@ -44,11 +45,11 @@ jobs:
           set -euo pipefail
           git apply --recount patches/10_rc5_rs1_rapid_scan_lifecycle_guard.patch
 
-      - name: Apply GR1 generic recovery supervisor
+      - name: Materialize GR1 generic recovery supervisor
         shell: bash
         run: |
           set -euo pipefail
-          git apply --recount patches/11_rc5_gr1_generic_recovery_supervisor.patch
+          python3 .github/scripts/apply_rc5_gr1.py
 
       - name: Static runtime checks
         shell: bash
@@ -79,7 +80,7 @@ jobs:
 
           Build chain:
 
-          \`RC4 exact -> 09 hardware candidate -> 10 RS1 -> 11 GR1\`
+          \`RC4 exact -> 09 hardware candidate -> 10 RS1 -> GR1 deterministic transform\`
 
           \`probe_eddy_current.py\` SHA256:
 
