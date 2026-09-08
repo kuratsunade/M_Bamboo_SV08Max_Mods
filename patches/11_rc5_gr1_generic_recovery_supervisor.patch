@@ -1,0 +1,245 @@
+# RC5-GR1 — Generic bounded Eddy recovery supervisor
+#
+# Target: exact hardware-tested RC5 candidate after RS1 Phase 1
+# Base candidate probe_eddy_current.py SHA256 before RS1:
+# dcb78d4d7d5108236eca23a225e6e582e1b128419bf10c8a5b83cf8de346ced0
+# Dependency:
+#   patches/10_rc5_rs1_rapid_scan_lifecycle_guard.patch
+#
+# Design goals:
+# - Prefer bounded automatic recovery for supported public Eddy-bearing commands.
+# - Only the outermost supported command owns recovery/replay.
+# - If M_Bamboo_Start_Sequence is active, it remains the outer recovery owner;
+#   direct-command wrappers become transparent pass-throughs.
+# - Never recover from I2C/bulk/lookahead/flush callbacks. Recovery begins only
+#   after a normal command_error reaches the synchronous public-command owner.
+# - One automatic recovery attempt per direct command invocation.
+# - The failed operation is replayed from its beginning; partial mesh/QGL/ZCAL
+#   output is never resumed or accepted.
+# - No change to rapid-scan SAMPLE_TIME, path, speed, height, interpolation,
+#   timestamping, or LDC query rate.
+#
+--- a/backend/probe_eddy_current.py
++++ b/backend/probe_eddy_current.py
+@@
+ class MBambooStartSequence:
+@@
+                 if self.stage != 'DONE': self.stage = 'IDLE'
++
++class MBambooRecoverySupervisor:
++    """Outer-owner bounded recovery for supported public Eddy operations.
++
++    This layer intentionally wraps public G-code handlers instead of entering
++    sensor callbacks or rapid-scan timing callbacks.  The wrapper installed for
++    a top-level command becomes the sole recovery owner.  Nested supported
++    commands are transparent pass-throughs so a BED_MESH wrapper, for example,
++    owns recovery for the whole BED_MESH operation instead of allowing nested
++    G28/ZCAL/QGL commands to each run independent retries.
++    """
++    VERSION = 'RC5-GR1'
++    COMMANDS = (
++        'G28',
++        'RUN_PROBE_VIR_CONTACT',
++        'CLEAN_NOZZLE',
++        'Z_OFFSET_CALIBRATION',
++        'QUAD_GANTRY_LEVEL',
++        'BED_MESH_CALIBRATE',
++    )
++
++    def __init__(self, printer, probe_obj):
++        self.printer = printer
++        self.reactor = printer.get_reactor()
++        self.gcode = printer.lookup_object('gcode')
++        self._probe_obj = probe_obj
++        self._original = {}
++        self.ready = False
++        self.active = False
++        self.owner = 'IDLE'
++        self.last_owner = 'NONE'
++        self.last_result = 'IDLE'
++        self.recovery_count = 0
++        self.recovered_total = 0
++        self.gcode.register_command(
++            'M_BAMBOO_RECOVERY_STATUS', self.cmd_RECOVERY_STATUS,
++            desc='Report M_Bamboo generic recovery supervisor state')
++        printer.register_event_handler('klippy:ready', self._handle_ready)
++
++    def get_status(self, eventtime):
++        return {
++            'ready': self.ready,
++            'active': self.active,
++            'owner': self.owner,
++            'last_owner': self.last_owner,
++            'last_result': self.last_result,
++            'recovery_count': self.recovery_count,
++            'recovered_total': self.recovered_total,
++            'version': self.VERSION,
++            'wrapped_commands': tuple(sorted(self._original)),
++        }
++
++    def cmd_RECOVERY_STATUS(self, gcmd):
++        st = self.get_status(self.reactor.monotonic())
++        gcmd.respond_info(
++            '=== M_Bamboo Recovery Supervisor ===\n'
++            'Version: %s\n'
++            'Ready: %s\n'
++            'Active: %s\n'
++            'Owner: %s\n'
++            'Last owner: %s\n'
++            'Last result: %s\n'
++            'Recoveries this invocation: %d\n'
++            'Recovered operations this Klipper session: %d\n'
++            'Wrapped commands: %s'
++            % (st['version'], st['ready'], st['active'], st['owner'],
++               st['last_owner'], st['last_result'], st['recovery_count'],
++               st['recovered_total'], ', '.join(st['wrapped_commands'])))
++
++    def _handle_ready(self):
++        # All config-defined macros and native commands have registered by the
++        # time klippy:ready is emitted.  GCodeDispatch.register_command(cmd,
++        # None) returns the exact existing ready handler, which we retain and
++        # call directly from the wrapper.
++        if self._original:
++            self.ready = True
++            return
++        installed = {}
++        try:
++            for command in self.COMMANDS:
++                old = self.gcode.register_command(command, None)
++                if old is None:
++                    continue
++                installed[command] = old
++                self._original[command] = old
++                self.gcode.register_command(
++                    command, self._make_handler(command),
++                    desc='M_Bamboo bounded-recovery wrapper for %s' % command)
++        except Exception:
++            # Config/registration failure is not a runtime recovery case.  Do
++            # not claim readiness if the command surface was only half wrapped.
++            self.ready = False
++            raise
++        self.ready = bool(installed)
++
++    def _make_handler(self, command):
++        def _handler(gcmd):
++            return self._dispatch(command, gcmd)
++        return _handler
++
++    def _safety_status(self):
++        return self._probe_obj.get_status(self.reactor.monotonic())
++
++    @staticmethod
++    def _marker(st):
++        return (int(st.get('transport_fault_seq', 0)),
++                int(st.get('preflight_failed_count', 0)))
++
++    @staticmethod
++    def _new_evidence(before, after):
++        return after[0] > before[0] or after[1] > before[1]
++
++    def _start_owner_active(self):
++        start = self.printer.lookup_object('M_Bamboo_Start_Sequence', None)
++        return bool(start is not None and getattr(start, 'active', False))
++
++    def _z_homed(self):
++        st = self.printer.lookup_object('toolhead').get_status(
++            self.reactor.monotonic())
++        return 'z' in st.get('homed_axes', '')
++
++    def _safe_home(self):
++        obj = self.printer.lookup_object('M_Bamboo_Safe_Homing', None)
++        if obj is None:
++            raise self.printer.command_error(
++                'M_Bamboo recovery: Safe Home unavailable')
++        return obj
++
++    def _recover(self, gcmd):
++        # Recovery itself is never retried by this supervisor.  If identity
++        # verification or the one fresh Safe Home fails, the exception leaves
++        # this function and the owning command fails closed immediately.
++        self._probe_obj.mcu_probe.run_transport_recovery_check(gcmd)
++        st = self._safety_status()
++        if st.get('restart_required'):
++            raise gcmd.error(
++                'M_Bamboo recovery: Safety Core requires FIRMWARE_RESTART')
++        if st.get('transport_state') not in ('HEALTHY', 'TRANSPORT_RECOVERED'):
++            raise gcmd.error(
++                'M_Bamboo recovery: transport did not recover cleanly')
++        if st.get('z_recovery_required') or not self._z_homed():
++            self._safe_home().establish_real_z_reference(
++                gcmd, home_xy_if_needed=True)
++            st = self._safety_status()
++            if (st.get('transport_state') not in
++                    ('HEALTHY', 'TRANSPORT_RECOVERED') or not self._z_homed()):
++                raise gcmd.error(
++                    'M_Bamboo recovery: fresh Safe Home did not restore trust')
++
++    def _dispatch(self, command, gcmd):
++        original = self._original.get(command)
++        if original is None:
++            raise gcmd.error(
++                'M_Bamboo recovery: original handler missing for %s' % command)
++
++        # START_PRINT already has the tested MBambooStartSequence outer owner.
++        # Likewise, when another wrapped public command is active, any nested
++        # supported commands must only propagate their errors to that owner.
++        if self.active or self._start_owner_active():
++            return original(gcmd)
++
++        self.active = True
++        self.owner = command
++        self.last_owner = command
++        self.last_result = 'RUNNING'
++        self.recovery_count = 0
++        try:
++            before = self._marker(self._safety_status())
++            try:
++                result = original(gcmd)
++                self.last_result = 'SUCCESS'
++                return result
++            except self.printer.command_error:
++                after = self._marker(self._safety_status())
++                if not self._new_evidence(before, after):
++                    self.last_result = 'NON_EDDY_ERROR'
++                    raise
++
++            # Exactly one bounded recovery for this top-level invocation.
++            self._recover(gcmd)
++            self.recovery_count = 1
++            gcmd.respond_info(
++                'MBRECOVERY: recovered transport for %s; replaying the whole '
++                'operation once.' % command)
++
++            retry_before = self._marker(self._safety_status())
++            try:
++                result = original(gcmd)
++            except self.printer.command_error:
++                retry_after = self._marker(self._safety_status())
++                if self._new_evidence(retry_before, retry_after):
++                    self.last_result = 'SECOND_EDDY_FAULT'
++                    raise gcmd.error(
++                        'M_Bamboo recovery: second Eddy/PREARM fault before '
++                        '%s completed; automatic recovery stopped' % command)
++                self.last_result = 'REPLAY_ERROR'
++                raise
++
++            self.recovered_total += 1
++            self.last_result = 'RECOVERED_SUCCESS'
++            gcmd.respond_info(
++                'MBRECOVERY: %s completed successfully after one automatic '
++                'recovery.' % command)
++            return result
++        finally:
++            self.active = False
++            self.owner = 'IDLE'
++
+ # Main "printer object"
+ class PrinterEddyProbe:
+@@
+         self.start_sequence = MBambooStartSequence(self.printer, self)
+         self.printer.add_object('M_Bamboo_Start_Sequence', self.start_sequence)
++        self.recovery_supervisor = MBambooRecoverySupervisor(
++            self.printer, self)
++        self.printer.add_object(
++            'M_Bamboo_Recovery_Supervisor', self.recovery_supervisor)
+         self.vir_contact_speed = 0.
