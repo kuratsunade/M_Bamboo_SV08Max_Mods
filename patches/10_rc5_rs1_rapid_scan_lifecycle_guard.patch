@@ -1,0 +1,75 @@
+# RC5-RS1 Phase 1 — Rapid Scan lifecycle guard
+#
+# Target: current offline RC5 candidate backend/probe_eddy_current.py
+# Base candidate SHA256:
+# dcb78d4d7d5108236eca23a225e6e582e1b128419bf10c8a5b83cf8de346ced0
+#
+# Intent:
+# - Do NOT change rapid-scan sample timing, SAMPLE_TIME, path, speed, scan height,
+#   interpolation, or I2C transaction rate.
+# - Preserve RC5 fault-path terminalization / transaction cleanup.
+# - Prevent queued rapid-scan lookahead callbacks from dereferencing a gather
+#   object after the scan session has already been ended/retired.
+# - Keep healthy rapid-scan semantics identical.
+#
+# Hardware finding motivating this patch (2026-09-08):
+#   Exception in flush_handler
+#   ... probe_eddy_current.py::_rapid_lookahead_cb
+#       self._gather.note_probe_and_position(...)
+#   AttributeError: 'NoneType' object has no attribute 'note_probe_and_position'
+#
+# This patch intentionally does NOT broaden auto-recovery ownership yet.
+# Recovery Supervisor work follows only after rapid-scan baseline is stable.
+
+--- a/backend/probe_eddy_current.py
++++ b/backend/probe_eddy_current.py
+@@
+ class EddyScanningProbe:
+     def __init__(self, printer, sensor_helper, calibration, z_offset, gcmd, safety):
+@@
+         self._sample_time_delay = 0.050
+         self._sample_time = gcmd.get_float("SAMPLE_TIME", 0.100, above=0.0)
+         self._is_rapid = gcmd.get("METHOD", "scan") == 'rapid_scan'
++        # A rapid-scan callback is queued into the toolhead lookahead and may
++        # execute after the owning probe session has already been retired by
++        # a command-path transport fault.  Mark session lifetime explicitly
++        # so stale callbacks can become harmless no-ops instead of touching
++        # a released gather object from toolhead flush context.
++        self._ended = False
+         self._safety._active_scan_session = self
+     def _rapid_lookahead_cb(self, printtime):
++        # This callback runs from Klipper's motion/lookahead flush path.
++        # Recoverable transport/session teardown must never escape from here
++        # as an exception: Klipper treats flush-handler exceptions as an
++        # internal motion failure and invokes printer shutdown.
++        if self._ended:
++            return
++        gather = self._gather
++        if gather is None:
++            return
+         start_time = printtime - self._sample_time / 2
+-        self._gather.note_probe_and_position(
++        gather.note_probe_and_position(
+             start_time, start_time + self._sample_time, printtime)
+@@
+     def end_probe_session(self):
++        # Retire callback-visible session state before releasing the gather.
++        # Any already-queued rapid lookahead callback will observe _ended and
++        # return without touching the released client/session.
++        self._ended = True
+         try:
+             if self._gather is not None:
+-                self._gather.finish()
++                gather = self._gather
+                 self._gather = None
++                gather.finish()
+         finally:
+             if self._tx.get('state') not in ('SUCCESS', 'ABORTED'):
+                 self._tx['state'] = 'ABORTED'
+                 self._tx['result'] = 'SESSION_ABORTED'
+                 self._safety._last_probe = self._safety._snapshot_transaction(
+                     self._tx)
+             if self._safety._active_transaction is self._tx:
+                 self._safety._active_transaction = None
+             if self._safety._active_scan_session is self:
+                 self._safety._active_scan_session = None
