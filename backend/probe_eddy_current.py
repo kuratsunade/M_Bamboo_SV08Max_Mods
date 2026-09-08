@@ -101,40 +101,48 @@ class EddyCalibration:
                 return False
             msgs.append(msg)
             return True
-        self.printer.lookup_object(self.name).add_client(handle_batch)
-        toolhead.dwell(1.)
-        self.drift_comp.note_z_calibration_start()
-        # Move to each 40um position
-        max_z = 4.0
-        samp_dist = 0.040
-        req_zpos = [i*samp_dist for i in range(int(max_z / samp_dist) + 1)]
-        start_pos = toolhead.get_position()
-        times = []
-        for zpos in req_zpos:
-            # Move to next position (always descending to reduce backlash)
-            next_pos = list(start_pos)
-            next_pos[2] += zpos
-            move(next_pos, move_speed)
-            # Note sample timing
-            start_query_time = toolhead.get_last_move_time() + 0.050
-            end_query_time = start_query_time + 0.050
-            toolhead.dwell(0.060)
-            # Find Z position based on actual commanded stepper position
-            toolhead.flush_step_generation()
-            kin_spos = {s.get_name(): s.get_commanded_position()
-                        for s in kin.get_steppers()}
-            kin_pos = kin.calc_position(kin_spos)
-            times.append((start_query_time, end_query_time, kin_pos[2]))
-        toolhead.dwell(1.0)
-        toolhead.wait_moves()
-        self.drift_comp.note_z_calibration_finish()
-        # Finish data collection deterministically.  Do not wait for a
-        # future successful batch to unregister this client.
-        is_finished = True
         sensor = self.printer.lookup_object(self.name)
-        remover = getattr(sensor, 'remove_client', None)
-        if remover is not None:
-            remover(handle_batch)
+        sensor.add_client(handle_batch)
+        calibration_started = False
+        try:
+            toolhead.dwell(1.)
+            self.drift_comp.note_z_calibration_start()
+            calibration_started = True
+            # Move to each 40um position
+            max_z = 4.0
+            samp_dist = 0.040
+            req_zpos = [i*samp_dist for i in range(int(max_z / samp_dist) + 1)]
+            start_pos = toolhead.get_position()
+            times = []
+            for zpos in req_zpos:
+                # Move to next position (always descending to reduce backlash)
+                next_pos = list(start_pos)
+                next_pos[2] += zpos
+                move(next_pos, move_speed)
+                # Note sample timing
+                start_query_time = toolhead.get_last_move_time() + 0.050
+                end_query_time = start_query_time + 0.050
+                toolhead.dwell(0.060)
+                # Find Z position based on actual commanded stepper position
+                toolhead.flush_step_generation()
+                kin_spos = {s.get_name(): s.get_commanded_position()
+                            for s in kin.get_steppers()}
+                kin_pos = kin.calc_position(kin_spos)
+                times.append((start_query_time, end_query_time, kin_pos[2]))
+            toolhead.dwell(1.0)
+            toolhead.wait_moves()
+        finally:
+            if calibration_started:
+                try:
+                    self.drift_comp.note_z_calibration_finish()
+                except Exception:
+                    pass
+            # Terminal lifecycle guarantee: a failed calibration must not
+            # leave its measurement client attached to the bulk helper.
+            is_finished = True
+            remover = getattr(sensor, 'remove_client', None)
+            if remover is not None:
+                remover(handle_batch)
         # Correlate query responses
         cal = {}
         step = 0
@@ -1181,6 +1189,8 @@ class EddyEndstopWrapper:
             'transport_fault_count': self._transport_fault_count,
             'fault_repeat_suppressed_count': (
                 self._fault_repeat_suppressed_count),
+            'preflight_check_count': self._preflight_check_count,
+            'preflight_failed_count': self._preflight_failed_count,
             'preflight_transient_recovered_count': (
                 self._preflight_transient_recovered_count),
             'eddy_diagnostic_level': self._diagnostic_level,
@@ -1451,39 +1461,64 @@ class EddyEndstopWrapper:
                    self._raw_diag_text()))
             self._active_transaction = None
             raise
-        self._require_transaction_transport_clean(tx, 'PROBE')
-        if not self._trigger_time:
+        try:
+            self._require_transaction_transport_clean(tx, 'PROBE')
+            if not self._trigger_time:
+                final = list(toolhead.get_position())
+                tx['final'] = final
+                tx['result'] = 'NO_TRIGGER'
+                tx['descent'] = start_pos[2] - final[2]
+                self._last_probe = self._snapshot_transaction(tx)
+                return trig_pos
+            start_time = self._trigger_time + 0.050
+            end_time = start_time + 0.100
+            toolhead_pos = toolhead.get_position()
+            self._gather.note_probe(start_time, end_time, toolhead_pos)
+            method = (_ProbeType.TYPE_DEFAULT if non_contact_probe
+                      else _ProbeType.TYPE_VIR_TOUCH)
+            result = self._gather.pull_probed(probe_method=method)[0]
+            self._require_transaction_transport_clean(tx, 'PROBE')
+            final = list(result)
+            tx['final'] = final
+            tx['result'] = 'SUCCESS'
+            tx['state'] = 'SUCCESS'
+            tx['descent'] = start_pos[2] - final[2]
+            self._trace_event(tx, 'SUCCESS', mode)
+            if non_contact_probe:
+                self._note_trusted_probe_trigger(final[2])
+            self._last_probe = self._snapshot_transaction(tx)
+            self._diag(
+                1, "%s TRIGGER OK result=%s descent=%.3f %s"
+                % (self._tx_prefix(tx), self._format_pos(final),
+                   tx['descent'],
+                   self._raw_diag_text() if self._diagnostic_level >= 2 else ''))
+            return result
+        except self._printer.command_error as e:
             final = list(toolhead.get_position())
             tx['final'] = final
-            tx['result'] = 'NO_TRIGGER'
-            tx['descent'] = start_pos[2] - final[2]
-            self._last_probe = self._snapshot_transaction(tx)
-            self._active_transaction = None
-            return trig_pos
-        start_time = self._trigger_time + 0.050
-        end_time = start_time + 0.100
-        toolhead_pos = toolhead.get_position()
-        self._gather.note_probe(start_time, end_time, toolhead_pos)
-        method = (_ProbeType.TYPE_DEFAULT if non_contact_probe
-                  else _ProbeType.TYPE_VIR_TOUCH)
-        result = self._gather.pull_probed(probe_method=method)[0]
-        self._require_transaction_transport_clean(tx, 'PROBE')
-        final = list(result)
-        tx['final'] = final
-        tx['result'] = 'SUCCESS'
-        tx['state'] = 'SUCCESS'
-        tx['descent'] = start_pos[2] - final[2]
-        self._trace_event(tx, 'SUCCESS', mode)
-        if non_contact_probe:
-            self._note_trusted_probe_trigger(final[2])
-        self._last_probe = self._snapshot_transaction(tx)
-        self._diag(
-            1, "%s TRIGGER OK result=%s descent=%.3f %s"
-            % (self._tx_prefix(tx), self._format_pos(final),
-               tx['descent'],
-               self._raw_diag_text() if self._diagnostic_level >= 2 else ''))
-        self._active_transaction = None
-        return result
+            tx['fault_seq_end'] = self._transport_seq()
+            if tx.get('state') != 'ABORTED':
+                tainted = (tx.get('transport_tainted') or
+                           tx['fault_seq_end'] != tx.get(
+                               'fault_seq_start', tx['fault_seq_end']))
+                if tainted:
+                    tx['transport_tainted'] = True
+                    tx['result'] = self._fault_reason or 'TRANSPORT_FAULT'
+                else:
+                    tx['result'] = str(e) or 'COMMAND_ERROR'
+                tx['state'] = 'ABORTED'
+                tx['descent'] = start_pos[2] - final[2]
+                self._trace_event(tx, 'COMMAND_ERROR', tx['result'])
+                self._last_probe = self._snapshot_transaction(tx)
+                self._diag(
+                    0, "%s LATE FAILURE result=%s final=%s descent=%.3f %s"
+                    % (self._tx_prefix(tx), tx['result'],
+                       self._format_pos(final), tx['descent'],
+                       self._raw_diag_text()))
+            raise
+        finally:
+            if self._active_transaction is tx:
+                self._active_transaction = None
 
     def probing_move(self, pos, speed):
         return self._run_logged_probe(pos, speed, True)
@@ -1524,10 +1559,25 @@ class EddyScanningProbe:
         self._sample_time_delay = 0.050
         self._sample_time = gcmd.get_float("SAMPLE_TIME", 0.100, above=0.0)
         self._is_rapid = gcmd.get("METHOD", "scan") == 'rapid_scan'
+        # A rapid-scan callback is queued into the toolhead lookahead and may
+        # execute after the owning probe session has already been retired by
+        # a command-path transport fault. Mark session lifetime explicitly so
+        # stale callbacks become harmless no-ops instead of touching a released
+        # gather object from toolhead flush context.
+        self._ended = False
         self._safety._active_scan_session = self
     def _rapid_lookahead_cb(self, printtime):
+        # This callback runs from Klipper's motion/lookahead flush path.
+        # Recoverable transport/session teardown must never escape from here as
+        # an exception: Klipper treats flush-handler exceptions as an internal
+        # motion failure and invokes printer shutdown.
+        if self._ended:
+            return
+        gather = self._gather
+        if gather is None:
+            return
         start_time = printtime - self._sample_time / 2
-        self._gather.note_probe_and_position(
+        gather.note_probe_and_position(
             start_time, start_time + self._sample_time, printtime)
     def run_probe(self, gcmd):
         toolhead = self._printer.lookup_object("toolhead")
@@ -1540,29 +1590,364 @@ class EddyScanningProbe:
         self._gather.note_probe_and_position(
             start_time, start_time + self._sample_time, start_time)
     def pull_probed_results(self):
-        self._safety._require_transaction_transport_clean(self._tx, 'SCAN')
-        if self._is_rapid:
-            # Flush lookahead (so all lookahead callbacks are invoked)
-            toolhead = self._printer.lookup_object("toolhead")
-            toolhead.get_last_move_time()
-        results = self._gather.pull_probed()
-        self._safety._require_transaction_transport_clean(self._tx, 'SCAN')
-        self._tx['state'] = 'SUCCESS'
-        self._tx['result'] = 'SUCCESS'
-        self._safety._trace_event(self._tx, 'SUCCESS', 'scan')
-        self._safety._last_probe = self._safety._snapshot_transaction(self._tx)
-        if self._safety._active_transaction is self._tx:
-            self._safety._active_transaction = None
-        # Allow axis_twist_compensation to update results
-        for epos in results:
-            self._printer.send_event("probe:update_results", epos)
-        return results
+        try:
+            self._safety._require_transaction_transport_clean(self._tx, 'SCAN')
+            if self._is_rapid:
+                # Flush lookahead (so all lookahead callbacks are invoked)
+                toolhead = self._printer.lookup_object("toolhead")
+                toolhead.get_last_move_time()
+            results = self._gather.pull_probed()
+            self._safety._require_transaction_transport_clean(self._tx, 'SCAN')
+            self._tx['state'] = 'SUCCESS'
+            self._tx['result'] = 'SUCCESS'
+            self._safety._trace_event(self._tx, 'SUCCESS', 'scan')
+            self._safety._last_probe = self._safety._snapshot_transaction(self._tx)
+            # Allow axis_twist_compensation to update results
+            for epos in results:
+                self._printer.send_event("probe:update_results", epos)
+            return results
+        except self._printer.command_error as e:
+            if self._tx.get('state') != 'ABORTED':
+                self._tx['fault_seq_end'] = self._safety._transport_seq()
+                tainted = (self._tx.get('transport_tainted') or
+                           self._tx['fault_seq_end'] != self._tx.get(
+                               'fault_seq_start', self._tx['fault_seq_end']))
+                if tainted:
+                    self._tx['transport_tainted'] = True
+                    self._tx['result'] = (self._safety._fault_reason or
+                                          'TRANSPORT_FAULT')
+                else:
+                    self._tx['result'] = str(e) or 'COMMAND_ERROR'
+                self._tx['state'] = 'ABORTED'
+                self._safety._trace_event(
+                    self._tx, 'COMMAND_ERROR', self._tx['result'])
+                self._safety._last_probe = self._safety._snapshot_transaction(
+                    self._tx)
+            raise
+        finally:
+            if self._safety._active_transaction is self._tx:
+                self._safety._active_transaction = None
     def end_probe_session(self):
-        if self._gather is not None:
-            self._gather.finish()
-            self._gather = None
-        if self._safety._active_scan_session is self:
-            self._safety._active_scan_session = None
+        # Retire callback-visible session state before releasing the gather.
+        # Any already-queued rapid lookahead callback will observe _ended and
+        # return without touching the released client/session.
+        self._ended = True
+        try:
+            if self._gather is not None:
+                gather = self._gather
+                self._gather = None
+                gather.finish()
+        finally:
+            if self._tx.get('state') not in ('SUCCESS', 'ABORTED'):
+                self._tx['state'] = 'ABORTED'
+                self._tx['result'] = 'SESSION_ABORTED'
+                self._safety._last_probe = self._safety._snapshot_transaction(
+                    self._tx)
+            if self._safety._active_transaction is self._tx:
+                self._safety._active_transaction = None
+            if self._safety._active_scan_session is self:
+                self._safety._active_scan_session = None
+
+class MBambooStartSequence:
+    STAGES = ('CLEAN', 'PRE_ZCAL', 'QGL', 'Z_HOME', 'MESH', 'POST_ZCAL')
+    VERSION = 'RC5-SR1'
+    def __init__(self, printer, probe_obj):
+        self.printer = printer
+        self.reactor = printer.get_reactor()
+        self.gcode = printer.lookup_object('gcode')
+        self._probe_obj = probe_obj
+        self.max_auto_recoveries = 3
+        self.ready = self.active = False
+        self.stage = 'IDLE'; self.recovery_count = 0; self.last_result = 'IDLE'
+        printer.register_event_handler('klippy:ready', self._handle_ready)
+        self.gcode.register_command('M_BAMBOO_START_SEQUENCE', self.cmd_START_SEQUENCE)
+    def _handle_ready(self):
+        self.ready = (self.printer.lookup_object('M_Bamboo_Safe_Homing', None) is not None and
+                      self.printer.lookup_object('gcode_macro _global_var', None) is not None)
+    def get_status(self, eventtime):
+        return {'ready': self.ready, 'active': self.active, 'stage': self.stage,
+                'recovery_count': self.recovery_count,
+                'max_auto_recoveries': self.max_auto_recoveries,
+                'last_result': self.last_result, 'version': self.VERSION}
+    def _safety_status(self):
+        return self._probe_obj.get_status(self.reactor.monotonic())
+    @staticmethod
+    def _marker(st):
+        return (int(st.get('transport_fault_seq', 0)), int(st.get('preflight_failed_count', 0)))
+    @staticmethod
+    def _new_evidence(a, b):
+        return b[0] > a[0] or b[1] > a[1]
+    def _run(self, script): self.gcode.run_script_from_command(script)
+    def _set_zcal_flag(self, v):
+        self._run('SET_GCODE_VARIABLE MACRO=_global_var VARIABLE=has_z_offset_calibrated VALUE=%s' % ('True' if v else 'False'))
+    def _bed_target(self):
+        return float(self.printer.lookup_object('heater_bed').get_status(self.reactor.monotonic()).get('target', 0.))
+    def _safe_home(self):
+        obj = self.printer.lookup_object('M_Bamboo_Safe_Homing', None)
+        if obj is None: raise self.printer.command_error('M_Bamboo START recovery: Safe Home unavailable')
+        return obj
+    def _z_homed(self):
+        st = self.printer.lookup_object('toolhead').get_status(self.reactor.monotonic())
+        return 'z' in st.get('homed_axes', '')
+    def _run_stage(self, stage):
+        if stage == 'CLEAN':
+            self._run('CLEAN_NOZZLE'); self._run('SET_GCODE_OFFSET Z=0'); return
+        if stage == 'PRE_ZCAL':
+            self._run('SET_VELOCITY_LIMIT ACCEL=15000 ACCEL_TO_DECEL=7500')
+            self._run('Z_OFFSET_CALIBRATION METHOD=force_overlay BED_TEMP=%.3f USE_CURRENT_Z=1 ZDBG=1' % self._bed_target())
+            self._set_zcal_flag(True); self._run('M400'); return
+        if stage == 'QGL': self._run('QUAD_GANTRY_LEVEL'); return
+        if stage == 'Z_HOME': self._run('G28 Z'); return
+        if stage == 'MESH':
+            th = self.printer.lookup_object('toolhead')
+            scv = float(th.get_status(self.reactor.monotonic()).get('square_corner_velocity', 5.))
+            try:
+                self._run('SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=1.0')
+                self._run('BED_MESH_CALIBRATE_BASE ADAPTIVE=1 PGP=1 METHOD=rapid_scan')
+            finally:
+                self._run('SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=%.6f' % scv)
+            return
+        if stage == 'POST_ZCAL':
+            self._run('Z_OFFSET_CALIBRATION METHOD=force_overlay BED_TEMP=%.3f USE_CURRENT_Z=1 USE_CURRENT_Z_ALLOWANCE=1.25 REHOME_XY=1 ZDBG=1' % self._bed_target()); return
+        raise self.printer.command_error('M_Bamboo START recovery: unknown stage %s' % stage)
+    def _recover(self, gcmd):
+        self._probe_obj.mcu_probe.run_transport_recovery_check(gcmd)
+        st = self._safety_status()
+        if st.get('transport_state') not in ('HEALTHY', 'TRANSPORT_RECOVERED'):
+            raise gcmd.error('M_Bamboo START recovery: transport did not recover')
+        if st.get('z_recovery_required') or not self._z_homed():
+            self._safe_home().establish_real_z_reference(gcmd, home_xy_if_needed=True)
+    def _run_with_recovery(self, stage, gcmd):
+        recovered = False
+        while True:
+            before = self._marker(self._safety_status())
+            try:
+                self._run_stage(stage); return
+            except self.printer.command_error:
+                after = self._marker(self._safety_status())
+                if not self._new_evidence(before, after): raise
+                if recovered:
+                    raise gcmd.error('M_Bamboo START recovery: second Eddy/PREARM fault before stage %s completed' % stage)
+                if self.recovery_count >= self.max_auto_recoveries:
+                    raise gcmd.error('M_Bamboo START recovery: START_PRINT recovery budget exhausted')
+                self._recover(gcmd); self.recovery_count += 1; recovered = True
+                gcmd.respond_info('MBSTART: recovery %d/%d complete; restarting stage %s' % (self.recovery_count, self.max_auto_recoveries, stage))
+    def cmd_START_SEQUENCE(self, gcmd):
+        if not self.ready: raise gcmd.error('M_Bamboo START recovery coordinator not ready')
+        if self.active: raise gcmd.error('M_Bamboo START recovery sequence already active')
+        self.active = True; self.recovery_count = 0; self.last_result = 'RUNNING'; self.stage = 'PREP'
+        try:
+            self._set_zcal_flag(False)
+            for stage in self.STAGES:
+                self.stage = stage; gcmd.respond_info('MBSTART: stage %s' % stage)
+                self._run_with_recovery(stage, gcmd)
+            self.last_result = 'SUCCESS'; self.stage = 'DONE'
+        except Exception:
+            self.last_result = 'FAILED'; raise
+        finally:
+            try: self._set_zcal_flag(False)
+            finally:
+                self.active = False
+                if self.stage != 'DONE': self.stage = 'IDLE'
+
+
+class MBambooRecoverySupervisor:
+    """Outer-owner bounded recovery for supported public Eddy operations.
+
+    Recovery is deliberately started only from a synchronous public G-code
+    owner.  Sensor, bulk, lookahead and toolhead-flush callbacks remain outside
+    this workflow layer.
+    """
+    VERSION = 'RC5-GR1'
+    COMMANDS = (
+        'G28',
+        'RUN_PROBE_VIR_CONTACT',
+        'CLEAN_NOZZLE',
+        'Z_OFFSET_CALIBRATION',
+        'QUAD_GANTRY_LEVEL',
+        'BED_MESH_CALIBRATE',
+    )
+
+    def __init__(self, printer, probe_obj):
+        self.printer = printer
+        self.reactor = printer.get_reactor()
+        self.gcode = printer.lookup_object('gcode')
+        self._probe_obj = probe_obj
+        self._original = {}
+        self.ready = False
+        self.active = False
+        self.owner = 'IDLE'
+        self.last_owner = 'NONE'
+        self.last_result = 'IDLE'
+        self.recovery_count = 0
+        self.recovered_total = 0
+        self.gcode.register_command(
+            'M_BAMBOO_RECOVERY_STATUS', self.cmd_RECOVERY_STATUS,
+            desc='Report M_Bamboo generic recovery supervisor state')
+        printer.register_event_handler('klippy:ready', self._handle_ready)
+
+    def get_status(self, eventtime):
+        return {
+            'ready': self.ready,
+            'active': self.active,
+            'owner': self.owner,
+            'last_owner': self.last_owner,
+            'last_result': self.last_result,
+            'recovery_count': self.recovery_count,
+            'recovered_total': self.recovered_total,
+            'version': self.VERSION,
+            'wrapped_commands': tuple(sorted(self._original)),
+        }
+
+    def cmd_RECOVERY_STATUS(self, gcmd):
+        st = self.get_status(self.reactor.monotonic())
+        gcmd.respond_info(
+            '=== M_Bamboo Recovery Supervisor ===\n'
+            'Version: %s\n'
+            'Ready: %s\n'
+            'Active: %s\n'
+            'Owner: %s\n'
+            'Last owner: %s\n'
+            'Last result: %s\n'
+            'Recoveries this invocation: %d\n'
+            'Recovered operations this Klipper session: %d\n'
+            'Wrapped commands: %s'
+            % (st['version'], st['ready'], st['active'], st['owner'],
+               st['last_owner'], st['last_result'], st['recovery_count'],
+               st['recovered_total'], ', '.join(st['wrapped_commands'])))
+
+    def _handle_ready(self):
+        # Config-defined macros and native commands have registered before this
+        # ready callback. register_command(command, None) returns the exact
+        # existing ready handler; retain it and install one outer wrapper.
+        if self._original:
+            self.ready = True
+            return
+        installed = {}
+        try:
+            for command in self.COMMANDS:
+                old = self.gcode.register_command(command, None)
+                if old is None:
+                    continue
+                installed[command] = old
+                self._original[command] = old
+                self.gcode.register_command(
+                    command, self._make_handler(command),
+                    desc='M_Bamboo bounded-recovery wrapper for %s' % command)
+        except Exception:
+            self.ready = False
+            raise
+        self.ready = bool(installed)
+
+    def _make_handler(self, command):
+        def _handler(gcmd):
+            return self._dispatch(command, gcmd)
+        return _handler
+
+    def _safety_status(self):
+        return self._probe_obj.get_status(self.reactor.monotonic())
+
+    @staticmethod
+    def _marker(st):
+        return (int(st.get('transport_fault_seq', 0)),
+                int(st.get('preflight_failed_count', 0)))
+
+    @staticmethod
+    def _new_evidence(before, after):
+        return after[0] > before[0] or after[1] > before[1]
+
+    def _start_owner_active(self):
+        start = self.printer.lookup_object('M_Bamboo_Start_Sequence', None)
+        return bool(start is not None and getattr(start, 'active', False))
+
+    def _z_homed(self):
+        st = self.printer.lookup_object('toolhead').get_status(
+            self.reactor.monotonic())
+        return 'z' in st.get('homed_axes', '')
+
+    def _safe_home(self):
+        obj = self.printer.lookup_object('M_Bamboo_Safe_Homing', None)
+        if obj is None:
+            raise self.printer.command_error(
+                'M_Bamboo recovery: Safe Home unavailable')
+        return obj
+
+    def _recover(self, gcmd):
+        # One episode receives one recovery attempt.  Failure of identity
+        # verification or the fresh Safe Home is terminal for this invocation.
+        self._probe_obj.mcu_probe.run_transport_recovery_check(gcmd)
+        st = self._safety_status()
+        if st.get('restart_required'):
+            raise gcmd.error(
+                'M_Bamboo recovery: Safety Core requires FIRMWARE_RESTART')
+        if st.get('transport_state') not in ('HEALTHY', 'TRANSPORT_RECOVERED'):
+            raise gcmd.error(
+                'M_Bamboo recovery: transport did not recover cleanly')
+        if st.get('z_recovery_required') or not self._z_homed():
+            self._safe_home().establish_real_z_reference(
+                gcmd, home_xy_if_needed=True)
+            st = self._safety_status()
+            if (st.get('transport_state') not in
+                    ('HEALTHY', 'TRANSPORT_RECOVERED') or not self._z_homed()):
+                raise gcmd.error(
+                    'M_Bamboo recovery: fresh Safe Home did not restore trust')
+
+    def _dispatch(self, command, gcmd):
+        original = self._original.get(command)
+        if original is None:
+            raise gcmd.error(
+                'M_Bamboo recovery: original handler missing for %s' % command)
+
+        # Only the outermost supported public command may own recovery.  The
+        # existing START coordinator remains the owner while it is active.
+        if self.active or self._start_owner_active():
+            return original(gcmd)
+
+        self.active = True
+        self.owner = command
+        self.last_owner = command
+        self.last_result = 'RUNNING'
+        self.recovery_count = 0
+        try:
+            before = self._marker(self._safety_status())
+            try:
+                result = original(gcmd)
+                self.last_result = 'SUCCESS'
+                return result
+            except self.printer.command_error:
+                after = self._marker(self._safety_status())
+                if not self._new_evidence(before, after):
+                    self.last_result = 'NON_EDDY_ERROR'
+                    raise
+
+            self._recover(gcmd)
+            self.recovery_count = 1
+            gcmd.respond_info(
+                'MBRECOVERY: recovered transport for %s; replaying the whole '
+                'operation once.' % command)
+
+            retry_before = self._marker(self._safety_status())
+            try:
+                result = original(gcmd)
+            except self.printer.command_error:
+                retry_after = self._marker(self._safety_status())
+                if self._new_evidence(retry_before, retry_after):
+                    self.last_result = 'SECOND_EDDY_FAULT'
+                    raise gcmd.error(
+                        'M_Bamboo recovery: second Eddy/PREARM fault before '
+                        '%s completed; automatic recovery stopped' % command)
+                self.last_result = 'REPLAY_ERROR'
+                raise
+
+            self.recovered_total += 1
+            self.last_result = 'RECOVERED_SUCCESS'
+            gcmd.respond_info(
+                'MBRECOVERY: %s completed successfully after one automatic '
+                'recovery.' % command)
+            return result
+        finally:
+            self.active = False
+            self.owner = 'IDLE'
 
 # Main "printer object"
 class PrinterEddyProbe:
@@ -1595,6 +1980,12 @@ class PrinterEddyProbe:
             self.cmd_M_BAMBOO_EDDY_RECOVERY_CHECK,
             desc='Run a no-motion Eddy transport recovery health check')
         self.printer.register_event_handler('klippy:ready', self._handle_ready)
+        self.start_sequence = MBambooStartSequence(self.printer, self)
+        self.printer.add_object('M_Bamboo_Start_Sequence', self.start_sequence)
+        self.recovery_supervisor = MBambooRecoverySupervisor(
+            self.printer, self)
+        self.printer.add_object(
+            'M_Bamboo_Recovery_Supervisor', self.recovery_supervisor)
         self.vir_contact_speed = 0.
         if config.get('vir_contact_speed', None) is not None:
             self.vir_contact_speed = config.getfloat('vir_contact_speed', default=5., minval=1.)
