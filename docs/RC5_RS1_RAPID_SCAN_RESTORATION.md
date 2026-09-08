@@ -57,6 +57,23 @@ RC4 had a known cleanup weakness: when `pull_probed_results()` raises, upstream 
 
 RS1 uses the smaller correction first: keep fault-path terminal cleanup, but make queued asynchronous callbacks lifetime-safe.
 
+## Combined-candidate rule
+
+RS1 remains independently scoped, but hardware validation may combine it with GR1 (`patches/11_rc5_gr1_generic_recovery_supervisor.patch`) because GR1 operates only at the synchronous public-command owner boundary and is explicitly forbidden from changing rapid-scan sampling semantics.
+
+The combined test candidate therefore has two separable responsibilities:
+
+```text
+RS1
+  -> make rapid-scan teardown/callback lifetime safe
+
+GR1
+  -> after a normal command_error reaches the outer command owner,
+     perform bounded transport/Z recovery and replay the whole operation once
+```
+
+This combination is acceptable only while GR1 remains outside I2C, bulk, lookahead and motion-flush callbacks. Any future recovery change that enters the measurement path must be validated separately before being combined with RS1 testing.
+
 ## Validation gates
 
 ### Gate A — static / mock lifecycle
@@ -96,6 +113,8 @@ Record per attempt:
 - duration
 - whether Klipper remained Ready
 
+GR1 should remain idle on this `_BASE` command because `_BASE` is not a wrapped public recovery contract. This makes Gate B a clean RS1/rapid-scan baseline even in the combined candidate.
+
 ### Gate C — historical workflow baseline
 
 Repeat the RC4-like path:
@@ -110,7 +129,7 @@ Compare against prior successful ~4 s rapid-scan evidence.
 
 Only after Gates B/C are stable.
 
-This distinguishes rapid-scan reliability from prerequisite-chain load (`contact -> verify -> Eddy calibration -> rapid scan`).
+This distinguishes rapid-scan reliability from prerequisite-chain load (`contact -> verify -> Eddy calibration -> rapid scan`). In the combined candidate, a natural eligible fault should be contained by RS1 and then recovered/replayed by GR1 at the public BED_MESH owner.
 
 ### Gate E — RC4 exact A/B if needed
 
@@ -127,18 +146,18 @@ Do not change scan speed or sampling parameters during this A/B.
 ## Decision after Phase 1
 
 - If direct rapid scan returns to historical stability, keep the measurement path unchanged and investigate workload coupling in the full wrapper separately.
-- If direct rapid scan remains unstable only under RC5-RS1, perform a narrower RC4-vs-RS1 code A/B before any further safety feature work.
+- If direct rapid scan remains unstable only under RC5-RS1, perform a narrower RC4-vs-RS1 code A/B before changing measurement parameters.
 - If RC4 exact also shows the same active-scan raw34 frequency, shift suspicion toward lower-layer LDC/STM32F1 transport/electrical state rather than RC5 measurement logic.
 
-## Deferred until baseline is restored
+## Still deferred
 
-Do not combine these with RS1 Phase 1:
+Do not mix these changes into the RS1 + GR1 hardware candidate:
 
-- calibration caching
-- additional dwell tuning
-- scan-speed reduction
-- SAMPLE_TIME changes
-- global Recovery Supervisor
-- automatic whole-command replay
+- calibration caching;
+- additional dwell tuning;
+- scan-speed reduction;
+- SAMPLE_TIME changes;
+- altered rapid-scan path/height/interpolation;
+- any recovery action executed from async measurement callbacks.
 
-Those are separate changes and would contaminate root-cause attribution.
+Those would contaminate root-cause attribution and/or change the measurement behavior we are trying to preserve.
