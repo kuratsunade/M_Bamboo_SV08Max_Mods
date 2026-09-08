@@ -1,0 +1,19 @@
+    # >>> M_Bamboo_SV08MAX_MOD:CONFIG_START_PRINT_CORE BEGIN >>>
+    # Version: RC5-SR1-GR1
+    # Maintainer: Master_Bamboo / 竹子
+    {% if 'M_Bamboo_Start_Sequence' in printer and printer['M_Bamboo_Start_Sequence'].ready %}
+        M_BAMBOO_START_SEQUENCE
+    {% else %}
+        CLEAN_NOZZLE
+        SET_GCODE_OFFSET Z=0
+        SET_VELOCITY_LIMIT ACCEL=15000 ACCEL_TO_DECEL=7500
+        Z_OFFSET_CALIBRATION METHOD=force_overlay BED_TEMP={printer.heater_bed.target} USE_CURRENT_Z=1 ZDBG=1
+        SET_GCODE_VARIABLE MACRO=_global_var VARIABLE=has_z_offset_calibrated VALUE=True
+        M400
+        QUAD_GANTRY_LEVEL
+        G28 Z
+        BED_MESH_CALIBRATE
+        Z_OFFSET_CALIBRATION METHOD=force_overlay BED_TEMP={printer.heater_bed.target} USE_CURRENT_Z=1 USE_CURRENT_Z_ALLOWANCE=1.25 REHOME_XY=1 ZDBG=1
+        SET_GCODE_VARIABLE MACRO=_global_var VARIABLE=has_z_offset_calibrated VALUE=False
+    {% endif %}
+    # <<< M_Bamboo_SV08MAX_MOD:CONFIG_START_PRINT_CORE END <<<
