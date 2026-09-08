@@ -1,0 +1,105 @@
+name: RC5 combined validation
+
+on:
+  push:
+    branches: [rc5-dev]
+    paths:
+      - 'backend/probe_eddy_current.py'
+      - 'installer.py'
+      - 'installer_manifest.json'
+      - 'release/config/start_print_core.block'
+      - 'tools/test_rc5_combined_runtime.py'
+      - '.github/workflows/rc5-combined-validation.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: rc5-dev
+          fetch-depth: 0
+
+      - name: Exact identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sha256sum backend/probe_eddy_current.py | awk '{print $1}')" = "5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29"
+          grep -q '5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29' installer.py
+          grep -q 'dcb78d4d7d5108236eca23a225e6e582e1b128419bf10c8a5b83cf8de346ced0' installer.py
+
+      - name: Compile
+        run: python3 -m py_compile installer.py backend/*.py tools/test_rc5_combined_runtime.py
+
+      - name: RS1 + GR1 implementation mock regression
+        run: python3 tools/test_rc5_combined_runtime.py
+
+      - name: Installer parser regression
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import installer
+          accepted={'max_velocity':{'700','400'},'max_accel':{'40000','15000'}}
+          good='''[printer]\nmax_velocity: 700\n# Stock / previous: 40000\nmax_accel: 40000\n[next]\nx: 1\n'''
+          out=installer.replace_keys_block(good,'printer',['max_velocity','max_accel'],'max_velocity: 400\nmax_accel: 15000\n','TEST',accepted)
+          assert 'max_velocity: 400' in out and 'max_accel: 15000' in out
+          bad='''[printer]\nmax_velocity: 700\nrogue_key: 123\nmax_accel: 40000\n[next]\nx: 1\n'''
+          try:
+              installer.replace_keys_block(bad,'printer',['max_velocity','max_accel'],'x','TEST',accepted)
+          except RuntimeError:
+              pass
+          else:
+              raise SystemExit('unknown key not rejected')
+          print('parser regression PASS')
+          PY
+
+      - name: START_PRINT RC4-to-RC5 transform and idempotence
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import installer
+          rc4='''[gcode_macro CLEAN_NOZZLE]\ngcode:\n    G1 X0\n\n[gcode_macro BED_MESH_CALIBRATE]\ngcode:\n    BED_MESH_CALIBRATE_BASE ADAPTIVE=1 PGP=1 METHOD=rapid_scan\n\n[gcode_macro START_PRINT]\ngcode:\n    CLEAR_PAUSE\n    CLEAN_NOZZLE\n    SET_GCODE_OFFSET Z=0\n    # >>> M_Bamboo_SV08MAX_MOD:CONFIG_START_PRINT_PRE_QGL BEGIN >>>\n    # Version: ZC-FR1\n    SET_VELOCITY_LIMIT ACCEL=15000 ACCEL_TO_DECEL=7500\n    Z_OFFSET_CALIBRATION METHOD=force_overlay BED_TEMP={printer.heater_bed.target} USE_CURRENT_Z=1 ZDBG=1\n    # <<< M_Bamboo_SV08MAX_MOD:CONFIG_START_PRINT_PRE_QGL END <<<\n    SET_GCODE_VARIABLE MACRO=_global_var VARIABLE=has_z_offset_calibrated VALUE=True\n    M400\n    QUAD_GANTRY_LEVEL\n    G28 Z\n    BED_MESH_CALIBRATE\n    # >>> M_Bamboo_SV08MAX_MOD:CONFIG_START_PRINT_POST_MESH BEGIN >>>\n    # Version: ZC-FR1\n    Z_OFFSET_CALIBRATION METHOD=force_overlay BED_TEMP={printer.heater_bed.target} USE_CURRENT_Z=1 USE_CURRENT_Z_ALLOWANCE=1.25 REHOME_XY=1 ZDBG=1\n    # <<< M_Bamboo_SV08MAX_MOD:CONFIG_START_PRINT_POST_MESH END <<<\n    SET_GCODE_VARIABLE MACRO=_global_var VARIABLE=has_z_offset_calibrated VALUE=False\n    MANUAL_FEED\n\n'''
+          # Avoid exercising unrelated CLEAN replacement in this focused fixture.
+          orig = installer.target_macro
+          out = installer.target_macro(rc4, safe=False, optimize=True)
+          assert out.count('CONFIG_START_PRINT_CORE BEGIN') == 1
+          assert "M_BAMBOO_START_SEQUENCE" in out
+          assert 'CONFIG_START_PRINT_PRE_QGL' not in out
+          assert 'CONFIG_START_PRINT_POST_MESH' not in out
+          out2 = installer.target_macro(out, safe=False, optimize=True)
+          assert out2 == out
+          print('START_PRINT transform/idempotence PASS')
+          PY
+
+      - name: Public/dev lineage separation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          m=json.load(open('installer_manifest.json'))
+          assert m['release']=='1.0.0-rc5-dev'
+          assert m['status']=='development-candidate'
+          assert m['backend_targets']['probe_eddy_current.py']=='5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29'
+          d=m['development_lineage']
+          assert d['public_release_contract'] is False
+          assert d['validation_artifact_hashes_are_not_release_lineage'] is True
+          print('lineage separation PASS')
+          PY
+
+      - name: Package development candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/rc5pkg
+          mkdir -p /tmp/rc5pkg
+          tar --exclude='.git' --exclude='.github' --exclude='__pycache__' -cf - . | tar -xf - -C /tmp/rc5pkg
+          (cd /tmp/rc5pkg && find . -type f -print0 | sort -z | xargs -0 sha256sum > DEV_SHA256SUMS)
+          (cd /tmp && zip -qr M_Bamboo_SV08Max_Mods_RC5_RS1_GR1_dev_candidate.zip rc5pkg)
+
+      - name: Upload development candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC5-RS1-GR1-dev-candidate
+          path: /tmp/M_Bamboo_SV08Max_Mods_RC5_RS1_GR1_dev_candidate.zip
+          if-no-files-found: error
