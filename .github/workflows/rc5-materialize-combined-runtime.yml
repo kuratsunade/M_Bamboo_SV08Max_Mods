@@ -31,7 +31,7 @@ jobs:
           EXPECTED_HW_SHA=dcb78d4d7d5108236eca23a225e6e582e1b128419bf10c8a5b83cf8de346ced0
 
           git show "${RC4_COMMIT}:backend/probe_eddy_current.py" > backend/probe_eddy_current.py
-          git apply --include='backend/probe_eddy_current.py' \
+          git apply --recount --include='backend/probe_eddy_current.py' \
             patches/09_rc5_exact_hardware_candidate_alignment.patch
 
           ACTUAL_HW_SHA="$(sha256sum backend/probe_eddy_current.py | awk '{print $1}')"
@@ -42,13 +42,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git apply patches/10_rc5_rs1_rapid_scan_lifecycle_guard.patch
+          git apply --recount patches/10_rc5_rs1_rapid_scan_lifecycle_guard.patch
 
       - name: Apply GR1 generic recovery supervisor
         shell: bash
         run: |
           set -euo pipefail
-          git apply patches/11_rc5_gr1_generic_recovery_supervisor.patch
+          git apply --recount patches/11_rc5_gr1_generic_recovery_supervisor.patch
 
       - name: Static runtime checks
         shell: bash
@@ -83,7 +83,7 @@ jobs:
 
           \`probe_eddy_current.py\` SHA256:
 
-          \`\`${SHA}\`\`
+          \`${SHA}\`
 
           The pre-RS1/GR1 hardware-tested intermediate is
           \`dcb78d4d7d5108236eca23a225e6e582e1b128419bf10c8a5b83cf8de346ced0\`.
