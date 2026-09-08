@@ -1,0 +1,109 @@
+name: RC5 materialize combined runtime
+
+on:
+  push:
+    branches: [rc5-dev]
+    paths:
+      - 'patches/09_rc5_exact_hardware_candidate_alignment.patch'
+      - 'patches/10_rc5_rs1_rapid_scan_lifecycle_guard.patch'
+      - 'patches/11_rc5_gr1_generic_recovery_supervisor.patch'
+      - '.github/workflows/rc5-materialize-combined-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout rc5-dev with history
+        uses: actions/checkout@v4
+        with:
+          ref: rc5-dev
+          fetch-depth: 0
+
+      - name: Reconstruct exact hardware-tested candidate from RC4
+        shell: bash
+        run: |
+          set -euo pipefail
+          RC4_COMMIT=98c0ff8b710c2d809ced8810b4c670e3ed91385a
+          EXPECTED_HW_SHA=dcb78d4d7d5108236eca23a225e6e582e1b128419bf10c8a5b83cf8de346ced0
+
+          git show "${RC4_COMMIT}:backend/probe_eddy_current.py" > backend/probe_eddy_current.py
+          git apply --include='backend/probe_eddy_current.py' \
+            patches/09_rc5_exact_hardware_candidate_alignment.patch
+
+          ACTUAL_HW_SHA="$(sha256sum backend/probe_eddy_current.py | awk '{print $1}')"
+          echo "Reconstructed hardware candidate SHA256: ${ACTUAL_HW_SHA}"
+          test "${ACTUAL_HW_SHA}" = "${EXPECTED_HW_SHA}"
+
+      - name: Apply RS1 rapid-scan lifecycle guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply patches/10_rc5_rs1_rapid_scan_lifecycle_guard.patch
+
+      - name: Apply GR1 generic recovery supervisor
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply patches/11_rc5_gr1_generic_recovery_supervisor.patch
+
+      - name: Static runtime checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile backend/probe_eddy_current.py
+
+          grep -q "class MBambooStartSequence" backend/probe_eddy_current.py
+          grep -q "class MBambooRecoverySupervisor" backend/probe_eddy_current.py
+          grep -q "self._ended = False" backend/probe_eddy_current.py
+          grep -q "if self._ended:" backend/probe_eddy_current.py
+          grep -q "M_BAMBOO_RECOVERY_STATUS" backend/probe_eddy_current.py
+          grep -q "M_Bamboo_Recovery_Supervisor" backend/probe_eddy_current.py
+
+          # GR1 must not introduce a second rapid-scan SAMPLE_TIME default or
+          # alter the established default value.
+          test "$(grep -c 'SAMPLE_TIME.*, 0.100' backend/probe_eddy_current.py)" -eq 1
+
+      - name: Record development runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA="$(sha256sum backend/probe_eddy_current.py | awk '{print $1}')"
+          cat > docs/RC5_DEV_COMBINED_RUNTIME_IDENTITY.md <<EOF
+          # RC5 Development Combined Runtime Identity
+
+          Development only; not a public release compatibility claim.
+
+          Build chain:
+
+          \`RC4 exact -> 09 hardware candidate -> 10 RS1 -> 11 GR1\`
+
+          \`probe_eddy_current.py\` SHA256:
+
+          \`\`${SHA}\`\`
+
+          The pre-RS1/GR1 hardware-tested intermediate is
+          \`dcb78d4d7d5108236eca23a225e6e582e1b128419bf10c8a5b83cf8de346ced0\`.
+
+          This file belongs to development migration/validation lineage and must
+          be excluded from final public release compatibility tables unless the
+          corresponding development artifact is intentionally published.
+          EOF
+          cat docs/RC5_DEV_COMBINED_RUNTIME_IDENTITY.md
+
+      - name: Commit materialized runtime to rc5-dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'M_Bamboo RC5 Builder'
+          git config user.email 'actions@users.noreply.github.com'
+          git add backend/probe_eddy_current.py docs/RC5_DEV_COMBINED_RUNTIME_IDENTITY.md
+          if git diff --cached --quiet; then
+            echo 'Materialized runtime already current.'
+            exit 0
+          fi
+          git commit -m 'rc5-dev: materialize exact RS1+GR1 runtime [skip ci]'
+          git push origin HEAD:rc5-dev
