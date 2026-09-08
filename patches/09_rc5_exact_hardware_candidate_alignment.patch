@@ -1,79 +1,20 @@
 # RC5 exact hardware candidate alignment patch
 #
-# Purpose:
-# Reconstruct the exact RC5 development candidate that was installed on the
-# 2026-09-08 SV08 Max hardware test machine before RS1/GR1 are applied.
+# Reconstructs backend/probe_eddy_current.py from the RC4 public exact release
+# payload to the exact development candidate installed/tested on 2026-09-08.
 #
-# Source of truth: the machine's `./install.sh all --raw-diff` output from the
-# clean offline candidate, starting from the RC4 production backend/config.
-#
-# Expected resulting probe_eddy_current.py SHA256:
+# Expected result SHA256:
 # dcb78d4d7d5108236eca23a225e6e582e1b128419bf10c8a5b83cf8de346ced0
 #
-# This patch is DEVELOPMENT LINEAGE. It is not a public release compatibility
-# claim and must not cause the offline archive hash to enter final release
-# manifests.
+# This is DEVELOPMENT LINEAGE, not a public compatibility claim.
+# Macro.cfg alignment from the same dry-run remains installer-owned.
 #
---- a/Macro.cfg
-+++ b/Macro.cfg
-@@
--# >>> M_Bamboo_SV08MAX_MOD:CONFIG_CLEAN_NOZZLE BEGIN >>>
--# Version: 1
--# Maintainer: Master_Bamboo / 竹子
--# Purpose: Randomized contact point and cross-hatch wiping pattern.
--# 用途：随机接触点与交叉擦拭，分散清洁区域磨损。
--# >>> Master_Bamboo: NOZZLE_CLEANER_NC_R1 BEGIN >>>
- # >>> M_Bamboo_SV08MAX_MOD:CONFIG_CLEAN_NOZZLE BEGIN >>>
- # Version: NC-R1
- # Maintainer: Master_Bamboo / 竹子
-@@
- [gcode_macro START_PRINT]
- gcode:
-     CLEAR_PAUSE
--    CLEAN_NOZZLE
--    SET_GCODE_OFFSET Z=0
--    # >>> M_Bamboo_SV08MAX_MOD:CONFIG_START_PRINT_PRE_QGL BEGIN >>>
--    # Version: ZC-FR1
-+    # >>> M_Bamboo_SV08MAX_MOD:CONFIG_START_PRINT_CORE BEGIN >>>
-+    # Version: RC5-SR1
-     # Maintainer: Master_Bamboo / 竹子
--    SET_VELOCITY_LIMIT ACCEL=15000 ACCEL_TO_DECEL=7500
--    Z_OFFSET_CALIBRATION METHOD=force_overlay BED_TEMP={printer.heater_bed.target} USE_CURRENT_Z=1 ZDBG=1
--    # <<< M_Bamboo_SV08MAX_MOD:CONFIG_START_PRINT_PRE_QGL END <<<
--    SET_GCODE_VARIABLE MACRO=_global_var VARIABLE=has_z_offset_calibrated VALUE=True
--    M400
--    QUAD_GANTRY_LEVEL
--    G28 Z
--    BED_MESH_CALIBRATE
--    # >>> M_Bamboo_SV08MAX_MOD:CONFIG_START_PRINT_POST_MESH BEGIN >>>
--    # Version: ZC-FR1
--    # Maintainer: Master_Bamboo / 竹子
--    Z_OFFSET_CALIBRATION METHOD=force_overlay BED_TEMP={printer.heater_bed.target} USE_CURRENT_Z=1 USE_CURRENT_Z_ALLOWANCE=1.25 REHOME_XY=1 ZDBG=1
--    # <<< M_Bamboo_SV08MAX_MOD:CONFIG_START_PRINT_POST_MESH END <<<
--    SET_GCODE_VARIABLE MACRO=_global_var VARIABLE=has_z_offset_calibrated VALUE=False
-+    {% if 'M_Bamboo_Start_Sequence' in printer and printer['M_Bamboo_Start_Sequence'].ready %}
-+        M_BAMBOO_START_SEQUENCE
-+    {% else %}
-+        CLEAN_NOZZLE
-+        SET_GCODE_OFFSET Z=0
-+        SET_VELOCITY_LIMIT ACCEL=15000 ACCEL_TO_DECEL=7500
-+        Z_OFFSET_CALIBRATION METHOD=force_overlay BED_TEMP={printer.heater_bed.target} USE_CURRENT_Z=1 ZDBG=1
-+        SET_GCODE_VARIABLE MACRO=_global_var VARIABLE=has_z_offset_calibrated VALUE=True
-+        M400
-+        QUAD_GANTRY_LEVEL
-+        G28 Z
-+        BED_MESH_CALIBRATE
-+        Z_OFFSET_CALIBRATION METHOD=force_overlay BED_TEMP={printer.heater_bed.target} USE_CURRENT_Z=1 USE_CURRENT_Z_ALLOWANCE=1.25 REHOME_XY=1 ZDBG=1
-+        SET_GCODE_VARIABLE MACRO=_global_var VARIABLE=has_z_offset_calibrated VALUE=False
-+    {% endif %}
-+    # <<< M_Bamboo_SV08MAX_MOD:CONFIG_START_PRINT_CORE END <<<
-     MANUAL_FEED
-     SET_PIN PIN=red_led VALUE=0
-     SET_PIN PIN=blue_led VALUE=0
-
 --- a/backend/probe_eddy_current.py
 +++ b/backend/probe_eddy_current.py
-@@
+@@ -101,40 +101,48 @@
+                 return False
+             msgs.append(msg)
+             return True
 -        self.printer.lookup_object(self.name).add_client(handle_batch)
 -        toolhead.dwell(1.)
 -        self.drift_comp.note_z_calibration_start()
@@ -149,7 +90,10 @@
 +            remover = getattr(sensor, 'remove_client', None)
 +            if remover is not None:
 +                remover(handle_batch)
-@@
+         # Correlate query responses
+         cal = {}
+         step = 0
+@@ -1181,6 +1189,8 @@
              'transport_fault_count': self._transport_fault_count,
              'fault_repeat_suppressed_count': (
                  self._fault_repeat_suppressed_count),
@@ -157,40 +101,13 @@
 +            'preflight_failed_count': self._preflight_failed_count,
              'preflight_transient_recovered_count': (
                  self._preflight_transient_recovered_count),
-@@
+             'eddy_diagnostic_level': self._diagnostic_level,
+@@ -1451,39 +1461,64 @@
+                    self._raw_diag_text()))
+             self._active_transaction = None
+             raise
 -        self._require_transaction_transport_clean(tx, 'PROBE')
 -        if not self._trigger_time:
--            final = list(toolhead.get_position())
--            tx['final'] = final
--            tx['result'] = 'NO_TRIGGER'
--            tx['descent'] = start_pos[2] - final[2]
--            self._last_probe = self._snapshot_transaction(tx)
--            self._active_transaction = None
--            return trig_pos
--        start_time = self._trigger_time + 0.050
--        end_time = start_time + 0.100
--        toolhead_pos = toolhead.get_position()
--        self._gather.note_probe(start_time, end_time, toolhead_pos)
--        method = (_ProbeType.TYPE_DEFAULT if non_contact_probe
--                  else _ProbeType.TYPE_VIR_TOUCH)
--        result = self._gather.pull_probed(probe_method=method)[0]
--        self._require_transaction_transport_clean(tx, 'PROBE')
--        final = list(result)
--        tx['final'] = final
--        tx['result'] = 'SUCCESS'
--        tx['state'] = 'SUCCESS'
--        tx['descent'] = start_pos[2] - final[2]
--        self._trace_event(tx, 'SUCCESS', mode)
--        if non_contact_probe:
--            self._note_trusted_probe_trigger(final[2])
--        self._last_probe = self._snapshot_transaction(tx)
--        self._diag(
--            1, "%s TRIGGER OK result=%s descent=%.3f %s"
--            % (self._tx_prefix(tx), self._format_pos(final),
--               tx['descent'],
--               self._raw_diag_text() if self._diagnostic_level >= 2 else ''))
--        self._active_transaction = None
--        return result
 +        try:
 +            self._require_transaction_transport_clean(tx, 'PROBE')
 +            if not self._trigger_time:
@@ -224,8 +141,37 @@
 +                   self._raw_diag_text() if self._diagnostic_level >= 2 else ''))
 +            return result
 +        except self._printer.command_error as e:
-+            final = list(toolhead.get_position())
-+            tx['final'] = final
+             final = list(toolhead.get_position())
+             tx['final'] = final
+-            tx['result'] = 'NO_TRIGGER'
+-            tx['descent'] = start_pos[2] - final[2]
+-            self._last_probe = self._snapshot_transaction(tx)
+-            self._active_transaction = None
+-            return trig_pos
+-        start_time = self._trigger_time + 0.050
+-        end_time = start_time + 0.100
+-        toolhead_pos = toolhead.get_position()
+-        self._gather.note_probe(start_time, end_time, toolhead_pos)
+-        method = (_ProbeType.TYPE_DEFAULT if non_contact_probe
+-                  else _ProbeType.TYPE_VIR_TOUCH)
+-        result = self._gather.pull_probed(probe_method=method)[0]
+-        self._require_transaction_transport_clean(tx, 'PROBE')
+-        final = list(result)
+-        tx['final'] = final
+-        tx['result'] = 'SUCCESS'
+-        tx['state'] = 'SUCCESS'
+-        tx['descent'] = start_pos[2] - final[2]
+-        self._trace_event(tx, 'SUCCESS', mode)
+-        if non_contact_probe:
+-            self._note_trusted_probe_trigger(final[2])
+-        self._last_probe = self._snapshot_transaction(tx)
+-        self._diag(
+-            1, "%s TRIGGER OK result=%s descent=%.3f %s"
+-            % (self._tx_prefix(tx), self._format_pos(final),
+-               tx['descent'],
+-               self._raw_diag_text() if self._diagnostic_level >= 2 else ''))
+-        self._active_transaction = None
+-        return result
 +            tx['fault_seq_end'] = self._transport_seq()
 +            if tx.get('state') != 'ABORTED':
 +                tainted = (tx.get('transport_tainted') or
@@ -249,8 +195,13 @@
 +        finally:
 +            if self._active_transaction is tx:
 +                self._active_transaction = None
-@@
--    def pull_probed_results(self):
+ 
+     def probing_move(self, pos, speed):
+         return self._run_logged_probe(pos, speed, True)
+@@ -1540,29 +1575,160 @@
+         self._gather.note_probe_and_position(
+             start_time, start_time + self._sample_time, start_time)
+     def pull_probed_results(self):
 -        self._safety._require_transaction_transport_clean(self._tx, 'SCAN')
 -        if self._is_rapid:
 -            # Flush lookahead (so all lookahead callbacks are invoked)
@@ -268,7 +219,6 @@
 -        for epos in results:
 -            self._printer.send_event("probe:update_results", epos)
 -        return results
-+    def pull_probed_results(self):
 +        try:
 +            self._safety._require_transaction_transport_clean(self._tx, 'SCAN')
 +            if self._is_rapid:
@@ -428,9 +378,10 @@
 +            finally:
 +                self.active = False
 +                if self.stage != 'DONE': self.stage = 'IDLE'
-@@
-         self.gcode.register_command(
-             'M_BAMBOO_EDDY_RECOVERY_CHECK',
+ 
+ # Main "printer object"
+ class PrinterEddyProbe:
+@@ -1595,6 +1761,8 @@
              self.cmd_M_BAMBOO_EDDY_RECOVERY_CHECK,
              desc='Run a no-motion Eddy transport recovery health check')
          self.printer.register_event_handler('klippy:ready', self._handle_ready)
