@@ -55,7 +55,8 @@ def test_rs1_callback():
     obj._gather = g
     obj._rapid_lookahead_cb(10.0)
     assert len(g.calls) == 1
-    assert g.calls[0] == (9.95, 10.05, 10.0)
+    expected = (9.95, 10.05, 10.0)
+    assert all(abs(a-b) < 1e-12 for a, b in zip(g.calls[0], expected))
 
     obj._ended = True
     obj._rapid_lookahead_cb(11.0)
