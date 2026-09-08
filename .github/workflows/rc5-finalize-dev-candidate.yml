@@ -1,0 +1,100 @@
+name: RC5 finalize dev candidate
+
+on:
+  push:
+    branches: [rc5-dev]
+    paths:
+      - 'backend/probe_eddy_current.py'
+      - 'docs/RC5_DEV_COMBINED_RUNTIME_IDENTITY.md'
+      - 'release/config/start_print_core.block'
+      - 'tools/rc5_finalize_dev_candidate.py'
+      - '.github/workflows/rc5-finalize-dev-candidate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: rc5-dev
+          fetch-depth: 0
+
+      - name: Verify combined runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED=5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29
+          ACTUAL="$(sha256sum backend/probe_eddy_current.py | awk '{print $1}')"
+          echo "combined runtime: ${ACTUAL}"
+          test "${ACTUAL}" = "${EXPECTED}"
+          grep -q "${EXPECTED}" docs/RC5_DEV_COMBINED_RUNTIME_IDENTITY.md
+
+      - name: Finalize installer and manifest
+        run: python3 tools/rc5_finalize_dev_candidate.py
+
+      - name: Static installer gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile installer.py backend/probe_eddy_current.py
+          grep -q 'PROJECT_RELEASE = "1.0.0-rc5-dev"' installer.py
+          grep -q '5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29' installer.py
+          grep -q 'dcb78d4d7d5108236eca23a225e6e582e1b128419bf10c8a5b83cf8de346ced0' installer.py
+          grep -q 'DEV_ONLY_MIGRATION_SOURCE' installer.py
+          grep -q "not ln.lstrip().startswith('#')" installer.py
+          grep -q 'CONFIG_START_PRINT_CORE' installer.py
+          grep -q 'release/config/start_print_core.block' installer.py
+
+      - name: Parser regression gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import installer
+          base='''[printer]\nmax_velocity: 700\n# Stock / previous: 40000\nmax_accel: 40000\n[next]\nx: 1\n'''
+          accepted={'max_velocity':{'700','400'},'max_accel':{'40000','15000'}}
+          out=installer.replace_keys_block(base,'printer',['max_velocity','max_accel'],'max_velocity: 400\nmax_accel: 15000\n','TEST',accepted)
+          assert 'max_velocity: 400' in out and 'max_accel: 15000' in out
+          bad='''[printer]\nmax_velocity: 700\nrogue_key: 123\nmax_accel: 40000\n[next]\nx: 1\n'''
+          try:
+              installer.replace_keys_block(bad,'printer',['max_velocity','max_accel'],'x','TEST',accepted)
+          except RuntimeError:
+              pass
+          else:
+              raise SystemExit('real unknown key was not rejected')
+          print('parser regression PASS')
+          PY
+
+      - name: Public/dev lineage separation gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          m=json.load(open('installer_manifest.json'))
+          assert m['status']=='development-candidate'
+          assert m['backend_targets']['probe_eddy_current.py']=='5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29'
+          dev=m['development_lineage']
+          assert dev['public_release_contract'] is False
+          assert dev['validation_artifact_hashes_are_not_release_lineage'] is True
+          assert dev['dev_only_migration_sources']['probe_eddy_current.py']==['dcb78d4d7d5108236eca23a225e6e582e1b128419bf10c8a5b83cf8de346ced0']
+          print('lineage separation PASS')
+          PY
+
+      - name: Commit finalized dev candidate metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'M_Bamboo RC5 Builder'
+          git config user.email 'actions@users.noreply.github.com'
+          git add installer.py installer_manifest.json
+          if git diff --cached --quiet; then
+            echo 'Installer/manifest already finalized.'
+            exit 0
+          fi
+          git commit -m 'rc5-dev: align installer with RS1+GR1 runtime [skip ci]'
+          git push origin HEAD:rc5-dev
