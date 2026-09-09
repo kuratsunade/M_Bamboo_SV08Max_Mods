@@ -1,6 +1,21 @@
-# M_Bamboo_SV08Max_Mods v1.0.0-rc4 Validation
+# RC5 development validation
 
-This **Release Candidate** has passed the RC4 installer/package offline gates, substantial real-machine healthy-path validation, one real old-lineage installer migration using exact-SHA256 Sovol factory-mirror recovery, and one naturally occurring FS1.1 raw-34 quarantine/recovery path end-to-end on hardware. It remains an RC because broader repeated natural-fault soak and long-term field confidence are still in progress.
+[2026-09-09 offline reproduction and input hashes](docs/RC5_OFFLINE_INSTALLER_FINDINGS.md)
+
+
+Updated 2026-09-09. Development candidate only. [Current evidence](docs/RC5_TEST_EVIDENCE.md) | [Printer test plan](docs/RC5_TEST_PLAN.md)
+
+## Current decision: release blocked
+
+Local RS1/GR1 mocks pass. RC4 to RC5 migration on isolated stock inputs writes two files; second apply writes zero. Full Restore restores exact original backends but leaves CONFIG_START_PRINT_CORE in Macro.cfg, so complete restore fails. Direct stock installation and the earlier machine snapshot dry run are refused at the START_PRINT lineage guard. Runtime/installer fixes and complete reruns are required before release.
+
+The historical archive simulation was previously blocked by an execution environment error. A working environment now reveals actual installer blockers; it is no longer accurate to describe this solely as an unavailable test environment. No current combined candidate claim of all historical gates passing is made.
+
+The historical offline runner also carries RC4 entry-page contracts and stock install assumptions. Keep its failures visible; do not use the focused combined mock result as a substitute for that matrix. Hardware failure paths remain separate from mock evidence.
+
+## Historical RC4 gates and evidence
+
+The sections below record the earlier release lineage only. They do not override the RC5 blockers above.
 
 ## Passed offline checks
 

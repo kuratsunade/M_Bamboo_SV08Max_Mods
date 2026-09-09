@@ -1,6 +1,6 @@
 # RC5 Safety / START Recovery Audit Findings
 
-Status: live engineering audit notes for `rc5-dev`.
+Status: historical design audit for `rc5-dev`. SR1/RS1/GR1 are now implemented. The implementation-order list below is historical rationale, not a current task list. Current validation and blockers are in [RC5 Test Evidence](RC5_TEST_EVIDENCE.md).
 
 This document records source-level findings that materially affect RC5 implementation. It is not release marketing copy.
 

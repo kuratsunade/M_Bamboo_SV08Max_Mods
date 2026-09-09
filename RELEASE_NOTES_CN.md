@@ -6,6 +6,12 @@
 
 ---
 
+## RC5 开发候选，2026 年 9 月 9 日文档更新
+
+SR1、RS1、GR1 已实现，健康快速扫描测量语义保持。已有一次自然 raw34 QGL 实机自动恢复；扫描与 START 故障覆盖仍待扩大。本地复核发现原厂直接安装被拒绝、START_PRINT 配置恢复不完整，构成发布阻塞。隔离环境 RC4 升 RC5 及第二次 apply 零写入通过。本次不修改运行时或安装器代码。
+
+见[当前证据](docs/RC5_TEST_EVIDENCE_CN.md)、[测试计划](docs/RC5_TEST_PLAN_CN.md)和[仓库文件策略](docs/REPOSITORY_CONTENT_POLICY.md)。以下旧发布记录保留为历史，不代表 RC5 当前验收状态。
+
 ## v1.0.0-rc4 — Release Candidate（2026-08-20）
 
 - First-takeover migration 在已识别 M_Bamboo lineage 的 legacy baseline 缺失或被污染时，可从 Sovol factory mirror 恢复可信原厂 backend；factory mirror 仍必须精确匹配已知原厂 SHA256，不能仅凭路径获得信任。

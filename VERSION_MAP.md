@@ -1,8 +1,8 @@
-# M_Bamboo_SV08Max_Mods v1.0.0-rc4 Version Map
+# M_Bamboo_SV08Max_Mods RC5 Development Version Map
 
 ## Release identity
 
-- Project release: `v1.0.0-rc4`
+- Project release: `1.0.0-rc5-dev`; public baseline: `v1.0.0-rc4`
 - Status: **Release Candidate**; not stable
 - Runtime Eddy safety: `ES-R4-EC2-FS1.1`
 - Installer schema: **v2**
@@ -25,7 +25,7 @@
 ldc1612.py
   aa25833c27367905c68f27dfa6e4d669ddfe304bdaa23febee8287737f757e04
 probe_eddy_current.py
-  6b82c2a057746cd83ee46e02835e5b392e1ceba9c731d4984b98c1f75c63295e
+  5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29
 probe.py
   227d0c6b8527ece1793caf969d5292646ec185f65ca1c679ccf4195515dd529a
 M_Bamboo_Safe_Homing.py
@@ -46,10 +46,10 @@ homing.py (reference only)
 - Restore means pre-M_Bamboo/original state. RC4 intentionally has no generic downgrade command; install an older release only after Restore, using that release's own exact installer artifact.
 - `SAVE_CONFIG` generated content is never modified by the cfg transformer.
 
-## Hardware validation status
+## Current validation
 
-Healthy path: **PASS** across repeated Safe Home, contact, CLEAN_NOZZLE, Z calibration, QGL, adaptive rapid mesh, final XY re-home, complete START_PRINT, real cube print, END_PRINT including the stock `clear_plr` cleanup hook, and post-print status.
+See [RC5 evidence](docs/RC5_TEST_EVIDENCE.md) and [Validation](VALIDATION.md). SR1 startup coordination, RS1 scan session lifetime protection and GR1 generic recovery share the unchanged ES-R4-EC2-FS1.1 safety label. That label alone does not identify the runtime bytes.
 
-Latest recorded post-print session: 30 pre-arm checks, 0 transport faults, 0 transient recoveries, 0 pre-arm failures, 0 forced quarantines, 0 repeated-fault suppressions.
+One natural QGL raw34 automatic recovery passed on the combined candidate. Active rapid scan fault coverage remains pending. Direct stock installation and incomplete START_PRINT restore are release blockers.
 
-Remaining RC limitation: natural FS1.1 transport-fault quarantine/recovery end-to-end hardware validation is pending. This package does not claim raw-34 is eliminated.
+Development migration identities remain in installer.py and installer_manifest.json; they are not public compatibility claims. See [lineage policy](docs/RC5_LINEAGE_POLICY.md).

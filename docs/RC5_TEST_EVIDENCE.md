@@ -1,5 +1,40 @@
 # RC5 Eddy Communication Test Evidence
 
+[2026-09-09 offline reproduction and input hashes](RC5_OFFLINE_INSTALLER_FINDINGS.md)
+
+
+## RC5 validation status, 2026-09-09
+
+Candidate: `rc5-dev`, assessed at commit `b2eb2bf3b1539e36a414ee6559404395a96b70a3`. Public baseline remains RC4. Runtime is SR1 + RS1 + GR1; see [version map](../VERSION_MAP.md) for exact identities.
+
+| Evidence | Result and limits |
+| --- | --- |
+| 2026-09-08 hardware record | Registration, Safe Home, QGL, multiple direct rapid scans and full BED_MESH flows passed. These results are carried from the engineering record, not new hardware tests performed on September 9. |
+| Natural raw34 during QGL | One event passed automatic GR1 recovery: abort partial QGL, revoke Z trust, quarantine, three identity reads, fresh Safe Home, replay QGL from point 1, successful completion. No manual recovery, firmware restart or Klipper shutdown. |
+| Active rapid scan fault | Healthy scans passed. A natural active scan fault under the combined candidate, followed by successful recovery/replay without flush shutdown, remains pending. Healthy scans alone do not close this gate. |
+| Complete print soak | The RC4 full print result is historical evidence. Continued complete START_PRINT and real prints on this exact combined candidate remain required. |
+| ZCAL | Contact transactions succeeded without new transport evidence, but one series failed the legacy adjacent sample 0.020 mm convergence rule. This is a separate repeatability investigation. |
+| Combined runtime mocks | Rerun locally on September 9: PASS. Includes retired scan callbacks, ordinary errors, first recovery, second fault, nested ownership and recovery failure. Mocks do not qualify hardware fault behavior. |
+| Direct stock installation | BLOCKED: recognized RC4 PRE/POST or RC5 core is required; untouched stock START_PRINT is refused. The supplied earlier machine snapshot is also refused at this guard. No forced migration attempted. |
+| RC4 to RC5 offline upgrade | PASS on isolated stock config installed with the supplied RC4 package first: two writes, then second apply zero writes. No printer service restart or hardware execution. |
+| Full Restore after that upgrade | FAIL: reports success and restores four original backend files exactly, removes originally absent Safe Home backend, but leaves CONFIG_START_PRINT_CORE and its RC5 fallback in Macro.cfg. Config restoration is incomplete. |
+
+The old full archive simulation gap is now partly investigated, not passed. Clean stock install and complete config restore are release blockers. Do not rely on this candidate's Full Restore as a complete removal path or use it for a downgrade until the defect is fixed and verified. Config formatting equality is not the restore contract; the remaining managed runtime block is the substantive failure.
+
+Evidence scope: stock config was extracted from the user supplied Sovol source ZIP; backend originals match the existing exact stock fixtures; the earlier machine export was tested separately in dry run. All writes were to isolated local fixtures. Private archives and logs are not added to the repository.
+
+### Decisions retained
+
+Keep PREARM and the existing CLEAN, PRE_ZCAL, QGL, G28 Z, BED_MESH, POST_ZCAL sequence. Keep the legacy ZCAL algorithm and 0.020 mm threshold pending evidence. No arbitrary dwell, inferred drift compensation, or MCU changes. Raw34/raw36 are not eliminated.
+
+### Priority and ownership
+
+See the [current test plan](RC5_TEST_PLAN.md). Maintainer offline work must close installation and restore defects; printer testing should collect normal use and natural fault evidence. Do not manufacture electrical faults.
+
+## Historical evidence / 历史证据
+
+The following sections preserve earlier experiments and design stages. Current status above takes precedence.
+
 > Branch: `rc5-dev`  
 > Purpose: consolidate the engineering test evidence that informed the RC5 communication-safety design.  
 > Scope: host-side Klipper / Eddy safety behavior only. This document does **not** claim that the underlying STM32F1/LDC1612 physical root cause has been eliminated.

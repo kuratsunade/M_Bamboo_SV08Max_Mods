@@ -2,27 +2,21 @@
 
 一个面向 **Sovol SV08 Max（500 × 500）** 的模块化 Klipper 改进项目，重点覆盖 Z 轴安全、Eddy 可靠性、校准流程、配置优化、诊断能力和可回滚发布。
 
-> Maintainer：**Master_Bamboo / 竹子**  
-> 当前公开基线：**v1.0.0-rc4**  
-> RC5：**开发与验证准备中**  
-> Runtime Safety 基线：**ES-R4-EC2-FS1.1**  
+> Maintainer：**Master_Bamboo / 竹子**
+> 当前公开基线：**v1.0.0-rc4**
+> RC5：**开发候选；部分实机验证完成，安装恢复仍有发布阻塞**
+> Runtime Safety 基线：**ES-R4-EC2-FS1.1**
 > [English README](README.md)
 
 ## 项目状态
 
-RC4 仍然是当前公开 Release Candidate。RC5 不是另起一套固件架构，而是在 RC4 基础上继续收口已经发现并验证过的问题。
+RC4 仍为公开候选版，下方 bootstrap 指向 `main`。`rc5-dev` 已包含 SR1 启动协调、RS1 快速扫描过期回调保护，以及覆盖六个公开操作的 GR1 有界恢复。
 
-RC5 当前主要工作包括：
+9 月 8 日实机记录包含多次健康 G28/QGL/网格，以及一次无需固件重启的自然 raw34 QGL 自动恢复。确切组合版仍需补充 active scan 故障恢复及完整打印观察。
 
-- 把 HF2.1 已证明有效的 Probe / Scan 后半段 transaction cleanup 正式带回 production；
-- 保留 **PREARM**，继续作为危险 Eddy Z 动作开始前的 fail-closed 安全门；
-- 在 `START_PRINT` 的核心流程中加入针对可恢复 PREARM / Eddy transport fault 的**有次数限制自动恢复**；
-- QGL、网格和 Z 校准发生中断后，从完整 checkpoint 重跑对应 atomic stage，而不是从失败的传感器 transaction 中间继续；
-- 清理启动过程中产生的临时状态，避免一次 failed start 污染下一次打印；
-- 完成 Sovol STM32F1 I2C 源码审计，并明确 MCU / Host 的信任边界；
-- 把我们做过的实机测试、fault context、recovery 结果和被修正过的假设整理进正式文档。
+9 月 9 日离线检查发现发布阻塞：直接原厂安装被拒绝；RC4 升 RC5 后 Full Restore 虽报告成功，Macro.cfg 仍残留 RC5 START_PRINT core。在修复前，不依赖该候选版完成卸载或降级。RC5 尚未正式发布。
 
-RC5 的实机 fault-injection 和最终 release validation 还没有完成。在 RC5 正式发布之前，下面的一键安装命令仍对应 `main` 上的公开版本。
+见[当前测试计划](docs/RC5_TEST_PLAN_CN.md)及[测试证据](docs/RC5_TEST_EVIDENCE_CN.md)。
 
 ## 项目边界
 
@@ -49,32 +43,15 @@ PLR 重构和实验性的 Gantry Safe Leveler **不属于当前 RC5 scope**。
 
 ## Eddy recovery 模型
 
-RC5 会保留 PREARM，并在此基础上增加打印启动阶段的 bounded auto recovery。
+PREARM 继续作为 Eddy 操作前的安全门。GR1 包装 `G28`、`RUN_PROBE_VIR_CONTACT`、`CLEAN_NOZZLE`、`Z_OFFSET_CALIBRATION`、`QUAD_GANTRY_LEVEL`、`BED_MESH_CALIBRATE`。
 
-可恢复 fault 出现在 Eddy 相关的 `START_PRINT` 核心流程时，高层策略是：
+只有最外层同步 owner 可在失败操作结束、新通信或 PREARM 证据出现后恢复。先无运动检查通信，必要时 Safe Home 重建 Z，再完整重跑失败操作一次。二次故障或恢复失败即终止；普通错误照常抛出；异步回调不启动流程恢复。
 
-```text
-transport / PREARM fault
--> 当前 atomic stage 保持或中止，不继续危险动作
--> 清理 / quarantine Eddy lifecycle
--> 不进行 Z 运动，先确认 transport 是否恢复
--> 如果 Z 已不可信，只允许一次 fresh armed Safe Home 重建 Z
--> 恢复该 stage 自己留下的临时状态
--> 从完整 checkpoint 重跑失败阶段
--> 只有该阶段完整成功后才继续 START_PRINT
-```
-
-这不是 blind retry：
-
-- 同一个 fault episode 最多一次 armed Z recovery；
-- 这一次 recovery 如果失败，该 episode 立即终止；
-- 只有恢复后的 stage 已经完整成功，后续新 fault 才能视为新的独立 episode；
-- 整个 `START_PRINT` 还有总 recovery budget，反复故障最终必须停下来检查；
-- 非 Eddy error 不会被 recovery coordinator 吞掉。
-
-当前设计目标是一次 `START_PRINT` 最多允许 **3 个已经成功恢复的独立 fault episode**，最终默认值仍需通过 RC5 实机 fault-injection 后冻结。
+START_PRINT 内由 SR1 负责。每阶段调用最多一次恢复，整次 START 最多三个独立事件。此预算已实现，仍需扩大自然实机覆盖。健康扫描参数和现有两阶段 Z 校准顺序保持不变。
 
 ## 如何安装
+
+以下公开安装与恢复流程针对 RC4。RC5 当前存在 START_PRINT 配置恢复缺陷，不能把它当作完整卸载或降级路径。
 
 ### GitHub 一键入口
 
@@ -195,7 +172,7 @@ SV08 Max 包含 Sovol 自己的 Eddy contact、MCU command、Z calibration、触
 
 ### 可以完整恢复吗？
 
-可以。Full Restore 是当前支持的完整移除 / 恢复路径。
+Full Restore 是设计中的完整移除路径。公开 RC4 有历史验证；当前 RC5 候选版仍有上述配置恢复缺陷。
 
 ## 文档
 

@@ -1,5 +1,9 @@
 # Technical FAQ — Eddy Safety, PREARM, I2C Faults, and RC5 Recovery
 
+## Current recovery scope
+
+GR1 is implemented for six public commands, not only START_PRINT: G28, RUN_PROBE_VIR_CONTACT, CLEAN_NOZZLE, Z_OFFSET_CALIBRATION, QUAD_GANTRY_LEVEL and BED_MESH_CALIBRATE. START retains ownership while SR1 is active. The implemented START budget is three independent episodes and one recovery per stage invocation; broader natural hardware coverage remains pending. See [current evidence](RC5_TEST_EVIDENCE.md) and [test plan](RC5_TEST_PLAN.md), including the newly reproduced installer/restore release blockers.
+
 > Status: **RC5 engineering reference.** RC4 remains the public baseline while RC5 transaction cleanup and bounded `START_PRINT` recovery are being prepared for hardware validation.
 
 ## Does M_Bamboo modify or reflash MCU firmware?
@@ -129,7 +133,7 @@ No. Recovery is deliberately bounded.
 - The full `START_PRINT` sequence has a total recovery budget so repeated faults eventually stop for inspection.
 - Non-Eddy errors are not swallowed by the coordinator.
 
-The current design target is up to **3 successfully recovered independent startup episodes**; the final release value remains subject to hardware fault-injection validation.
+The current design target is up to **3 successfully recovered independent startup episodes**; the final release value remains subject to broader natural hardware fault coverage.
 
 ## How does the coordinator know a failure is new and belongs to the current stage?
 

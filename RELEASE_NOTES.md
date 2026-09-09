@@ -6,6 +6,12 @@ This file is the append-only version history for public releases and engineering
 
 ---
 
+## RC5 development candidate, documentation refresh 2026-09-09
+
+SR1, RS1 and GR1 are present; healthy rapid scan semantics are preserved. One natural raw34 QGL automatic recovery is recorded on hardware. Broader scan/START fault coverage remains pending. September 9 local checks reproduced direct stock installation refusal and incomplete START_PRINT config restore; release is blocked. RC4 to RC5 upgrade and second apply zero writes passed in isolation. Runtime and installer code are unchanged in this documentation revision.
+
+See [current evidence](docs/RC5_TEST_EVIDENCE.md), [test plan](docs/RC5_TEST_PLAN.md), and [repository file policy](docs/REPOSITORY_CONTENT_POLICY.md). Earlier release entries below remain historical, not current RC5 acceptance claims.
+
 ## v1.0.0-rc4 — Release Candidate (2026-08-20)
 
 - First-takeover migration can recover trusted original backend bytes from Sovol's factory mirror when a recognized M_Bamboo lineage has a missing or polluted legacy baseline; the mirror is accepted only by exact known-stock SHA256.

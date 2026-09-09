@@ -1,5 +1,8 @@
 # RC4 Deployment, Restore, and Transaction Rollback
 
+> RC5 status, 2026-09-09: direct stock installation is currently refused. Full Restore after RC4 to RC5 upgrade leaves the RC5 START_PRINT core and is not a complete removal path. Do not use that candidate procedure for downgrade until fixed and tested. The intended policy below and historical RC4 results do not override these blockers. See [current evidence](RC5_TEST_EVIDENCE.md).
+
+
 This document describes the **current v1.0.0-rc4 installer contract**. It does not document historical EC2 test-installer behavior.
 
 ## 1. Dry run first

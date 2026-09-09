@@ -72,5 +72,21 @@
       ]
     },
     "validation_artifact_hashes_are_not_release_lineage": true
+  },
+  "documentation_validation_snapshot": {
+    "date": "2026-09-09",
+    "runtime_source_commit": "b2eb2bf3b1539e36a414ee6559404395a96b70a3",
+    "release_blockers": [
+      "direct-stock-START_PRINT-lineage-refusal",
+      "Full-Restore-leaves-CONFIG_START_PRINT_CORE"
+    ],
+    "local_checks": {
+      "combined_runtime_mock": "pass",
+      "rc4_to_rc5_isolated_upgrade": "pass-two-writes",
+      "second_apply": "pass-zero-writes",
+      "full_restore": "fail-config-core-remains"
+    },
+    "hardware_source": "2026-09-08 engineering record; no new hardware tests on 2026-09-09",
+    "test_plan": "docs/RC5_TEST_PLAN.md"
   }
 }

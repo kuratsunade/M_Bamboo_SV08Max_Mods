@@ -1,5 +1,9 @@
 # 技术 FAQ — Eddy Safety、PREARM、I2C 故障与 RC5 自动恢复
 
+## 当前恢复范围
+
+GR1 已实现六个公开命令的恢复，不限于 START_PRINT：G28、RUN_PROBE_VIR_CONTACT、CLEAN_NOZZLE、Z_OFFSET_CALIBRATION、QUAD_GANTRY_LEVEL、BED_MESH_CALIBRATE。SR1 活动时 START 保持 owner。已实现预算为每次 START 三个独立事件、每阶段调用一次恢复，仍需扩大自然实机覆盖。见[当前证据](RC5_TEST_EVIDENCE_CN.md)及[测试计划](RC5_TEST_PLAN_CN.md)，其中记录了新复现的安装与恢复发布阻塞。
+
 > 状态：**RC5 工程技术参考。** RC4 仍然是当前公开基线；RC5 正在完成 transaction cleanup 与 `START_PRINT` bounded recovery，之后进入实机验证。
 
 ## M_Bamboo 会修改或重刷 MCU 固件吗？
@@ -145,7 +149,7 @@ RC5 会在现有 Eddy Safety Core 上方增加一个很小的 startup coordinato
 - 整个 `START_PRINT` 还有总 recovery budget，反复故障最终必须停下来检查；
 - 非 Eddy error 不会被 coordinator 当成通讯故障吞掉。
 
-当前设计目标是一次 `START_PRINT` 最多允许 **3 个已经成功恢复的独立 fault episode**，最终默认值仍要经过 RC5 实机 fault-injection 才冻结。
+当前设计目标是一次 `START_PRINT` 最多允许 **3 个已经成功恢复的独立 fault episode**，最终默认值仍要经过 RC5 自然故障实机覆盖 才冻结。
 
 ## Coordinator 怎么知道 fault 是当前 stage 新发生的，而不是旧状态？
 

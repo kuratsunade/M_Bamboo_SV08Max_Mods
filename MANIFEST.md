@@ -1,8 +1,14 @@
-# M_Bamboo_SV08Max_Mods v1.0.0-rc4 Package Manifest
+# M_Bamboo_SV08Max_Mods RC5 Development Package Manifest
 
-**Runtime safety:** `ES-R4-EC2-FS1.1`  
-**Release status:** Release Candidate  
+**Runtime safety:** `ES-R4-EC2-FS1.1`
+**Release status:** Development candidate, not a public release
 **Installer schema:** v2
+
+## Current candidate boundary
+
+SR1, RS1 and GR1 are combined in probe_eddy_current.py with exact target hashes in installer_manifest.json. [Current evidence](docs/RC5_TEST_EVIDENCE.md) supersedes historical RC4 validation descriptions below. Direct stock install and complete START_PRINT restore are blocked; do not treat the intended restore architecture below as an RC5 PASS.
+
+Private handoff exports are archived outside the branch tree. Operational migration hashes, restore templates, validation fixtures and deterministic build tooling remain. See [file policy](docs/REPOSITORY_CONTENT_POLICY.md).
 
 ## Deployable backend Python
 

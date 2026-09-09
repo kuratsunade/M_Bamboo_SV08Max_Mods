@@ -1,5 +1,40 @@
 # RC5 Eddy 通讯测试证据
 
+[2026-09-09 offline reproduction and input hashes](RC5_OFFLINE_INSTALLER_FINDINGS.md)
+
+
+## RC5 验证状态，2026 年 9 月 9 日
+
+候选分支 `rc5-dev`，本次核对提交 `b2eb2bf3b1539e36a414ee6559404395a96b70a3`。公开基线仍是 RC4；组合实现包含 SR1、RS1、GR1。确切身份见 [版本表](../VERSION_MAP.md)。
+
+| 证据 | 结果与边界 |
+| --- | --- |
+| 9 月 8 日实机记录 | 注册、Safe Home、QGL、多次直接快速扫描及完整 BED_MESH 已通过。这是交接中已有记录，不是 9 月 9 日新执行的实机测试。 |
+| QGL 自然 raw34 | 一次 GR1 自动恢复通过：丢弃部分 QGL，撤销 Z 信任，隔离数据流，三次身份读取，重新 Safe Home，从第一个点重跑 QGL 并成功。无需手动恢复、固件重启或 Klipper shutdown。 |
+| 快速扫描运行期间故障 | 健康扫描已通过；确切组合版在自然 active scan fault 后不 shutdown 并恢复重跑的实机证据仍待补。健康扫描不能代替该项。 |
+| 完整打印 | RC4 的完整打印结果是历史证据。确切组合版仍需继续完整 START_PRINT 与真实打印观察。 |
+| ZCAL | 已见接触事务成功、没有新通信故障，但相邻采样 0.020 mm 收敛规则失败；作为独立重复性问题调查。 |
+| 组合运行时 mock | 9 月 9 日本地重跑通过，覆盖过期回调、普通错误、首次恢复、二次故障、嵌套 ownership 和恢复失败。不能代替实机故障证据。 |
+| 原厂直接安装 | 阻塞：安装器要求 RC4 PRE/POST 或 RC5 core，拒绝原厂 START_PRINT；修改前机器快照也在此处被拒绝。没有强制迁移。 |
+| RC4 升 RC5 离线模拟 | 通过：原厂配置先用提供的 RC4 包安装，再升级 RC5，两处写入；第二次 apply 零写入。没有操作打印机服务或实机。 |
+| 升级后 Full Restore | 失败：虽报告成功，四个原始后端逐字节恢复、原本不存在的 Safe Home 后端被移除，但 Macro.cfg 仍残留 CONFIG_START_PRINT_CORE 及 RC5 fallback。配置恢复不完整。 |
+
+过去的完整归档模拟缺口现已部分调查，不能标为通过。原厂安装与配置完整恢复属于发布阻塞。在修复并验证前，不应依赖该候选版 Full Restore 完成卸载或降级。配置格式逐字节相等不是恢复契约；残留运行宏才是实质问题。
+
+证据范围：原厂配置取自用户提供的 Sovol 源码 ZIP；后端原始字节与已有 stock fixtures 一致；修改前机器导出另行执行 dry run。全部写入只发生在隔离的本地测试副本。私人归档和日志不提交仓库。
+
+### 保留的决定
+
+保留 PREARM 与 CLEAN、PRE_ZCAL、QGL、G28 Z、BED_MESH、POST_ZCAL 顺序。暂不改变 ZCAL 算法及 0.020 mm 阈值，不增加任意等待、推测性漂移补偿或 MCU 修改。不能宣称 raw34/raw36 已消除。
+
+### 下一步与分工
+
+见[当前测试计划](RC5_TEST_PLAN_CN.md)。安装恢复问题由维护侧离线验证处理；打印机侧继续正常使用及自然故障取证，不人为制造电气故障。
+
+## Historical evidence / 历史证据
+
+The following sections preserve earlier experiments and design stages. Current status above takes precedence.
+
 > 分支：`rc5-dev`  
 > 用途：集中记录 RC5 communication-safety 设计所依据的实机测试、故障形态、recovery 结果和被后续证据修正过的假设。  
 > 边界：本文只讨论 Klipper host / Eddy Safety 行为，**不宣称已经消灭 STM32F1 / LDC1612 的底层物理根因**。
@@ -256,7 +291,7 @@ MAX_RECOVERY_ATTEMPTS_PER_EPISODE = 1
 
 这比单纯数新的 fault-seq 更严格，因为它要求两次自动 recovery 之间必须出现明确的 workflow progress checkpoint。
 
-总 budget 的最终数字仍要由 RC5 实机 fault-injection matrix 验证后冻结。
+总 budget 的最终数字仍要由 RC5 自然故障实机覆盖 验证后冻结。
 
 ## 这些 statistics 不能证明什么
 

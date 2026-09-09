@@ -2,27 +2,21 @@
 
 A modular Klipper improvement project for the **Sovol SV08 Max (500 × 500)**, focused on Z safety, Eddy reliability, calibration behavior, configuration quality, diagnostics, and reversible release management.
 
-> Maintainer: **Master_Bamboo / 竹子**  
-> Public baseline: **v1.0.0-rc4**  
-> RC5: **in development / validation preparation**  
-> Runtime Safety baseline: **ES-R4-EC2-FS1.1**  
+> Maintainer: **Master_Bamboo / 竹子**
+> Public baseline: **v1.0.0-rc4**
+> RC5: **development candidate; partial hardware validation, installer release blockers**
+> Runtime Safety baseline: **ES-R4-EC2-FS1.1**
 > [简体中文 README](README_CN.md)
 
 ## Project status
 
-RC4 remains the current public release candidate. RC5 is a focused continuation of the same architecture, not a firmware rewrite.
+RC4 remains the public release candidate; bootstrap examples below select `main`. RC5 on `rc5-dev` contains SR1 startup coordination, RS1 retired rapid scan callback protection and GR1 bounded recovery for six public operations.
 
-RC5 work currently includes:
+The September 8 hardware record includes repeated healthy G28/QGL/mesh and one natural raw34 QGL automatic recovery without firmware restart. Active scan fault recovery and complete print soak on this exact candidate remain open.
 
-- productionizing the late probe/scan transaction cleanup proven during HF2.1 testing;
-- retaining **PREARM** as the fail-closed gate before safety-critical Eddy Z motion;
-- adding bounded **automatic recovery** for eligible PREARM / Eddy transport faults during the `START_PRINT` core sequence;
-- restarting failed QGL / mesh / Z-calibration work from clean atomic checkpoints instead of resuming a failed sensor transaction;
-- cleaning startup-only state so a failed print start cannot poison the next one;
-- completing the Sovol STM32F1 I2C source audit and defining the exact MCU/host trust boundary;
-- consolidating real-machine test statistics and revised hypotheses into release documentation.
+September 9 offline checks found release blockers: direct stock installation is refused, and Full Restore after RC4 to RC5 upgrade leaves the RC5 START_PRINT core in Macro.cfg despite reporting success. Do not use this candidate's Full Restore as a complete removal/downgrade procedure. RC5 is not a public release.
 
-RC5 hardware fault-injection and final release validation are still pending. Until RC5 is promoted, the installation commands below refer to the current `main` release.
+See [current test plan](docs/RC5_TEST_PLAN.md) and [evidence](docs/RC5_TEST_EVIDENCE.md).
 
 ## Project boundary
 
@@ -49,30 +43,11 @@ PLR redesign and the experimental Gantry Safe Leveler are **not** part of the cu
 
 ## Eddy recovery model
 
-RC5 keeps PREARM and extends it into bounded startup recovery.
+PREARM remains the gate before Eddy operations. GR1 wraps `G28`, `RUN_PROBE_VIR_CONTACT`, `CLEAN_NOZZLE`, `Z_OFFSET_CALIBRATION`, `QUAD_GANTRY_LEVEL` and `BED_MESH_CALIBRATE`.
 
-A recoverable fault during the Eddy-sensitive `START_PRINT` chain follows this high-level policy:
+Only the outer synchronous owner recovers on new transport/PREARM evidence after failed work has ended. It checks transport without motion, rebuilds Z trust with fresh Safe Home if required, and replays the whole failed operation once. A second fault or recovery failure terminates. Ordinary errors propagate. Async callbacks never launch workflow recovery.
 
-```text
-transport / PREARM fault
--> hold or abort the current atomic startup stage
--> clean/quarantine the Eddy lifecycle
--> verify transport health without Z motion
--> rebuild Z trust with one fresh armed Safe Home when required
--> restore stage-local temporary state
--> rerun the complete failed stage
--> continue START_PRINT only after the stage completes cleanly
-```
-
-This is **not blind retry**:
-
-- one armed Z-recovery attempt per fault episode;
-- if that recovery attempt fails, the episode is terminal;
-- a later independent fault is eligible only after the recovered stage has completed successfully;
-- `START_PRINT` has a total automatic-recovery budget so repeated faults eventually stop for inspection;
-- non-Eddy errors are not swallowed by the recovery coordinator.
-
-The current design target is up to **3 successfully recovered independent startup episodes**, subject to final RC5 hardware fault-injection validation.
+During START_PRINT, SR1 remains owner. Each stage invocation gets at most one recovery; the whole START has a maximum of three independent episodes. This implemented budget still needs broader natural hardware coverage. Healthy rapid scan measurement parameters and the existing two stage Z calibration sequence remain unchanged.
 
 ## Installation
 
@@ -128,6 +103,8 @@ Individual features may also be previewed/applied independently:
 Add `--apply` only after reviewing the dry-run.
 
 ### Full Restore
+
+The commands below describe the public RC4 path. The RC5 candidate has an open START_PRINT restoration defect; do not rely on it for complete removal until corrected.
 
 Preview:
 
@@ -195,7 +172,7 @@ No. Hardware Cooling is explicitly opt-in because it depends on a physical modif
 
 ### Can the printer be restored?
 
-Yes. Full Restore is the supported removal/recovery path for M_Bamboo-owned changes.
+Full Restore is the intended removal path. Public RC4 has historical validation; the current RC5 candidate has an open config restoration defect described above.
 
 ## Documentation
 
