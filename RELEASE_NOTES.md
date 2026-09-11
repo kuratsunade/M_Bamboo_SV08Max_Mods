@@ -6,6 +6,10 @@ This file is the append-only version history for public releases and engineering
 
 ---
 
+## Documentation alignment, 2026-09-11
+
+Restores the main branch README structure: project overview, feature ownership, installation, overview FAQ and documentation map. Technical FAQ again follows the baseline source questions, with current operation recovery and measurement limits integrated. Detailed evidence stays in test documents. Candidate installation/restore limitations remain visible at the applicable instructions. No runtime, installer, thresholds or feature scope changed; no new hardware qualification is claimed.
+
 ## RC5 development candidate, documentation refresh 2026-09-09
 
 SR1, RS1 and GR1 are present; healthy rapid scan semantics are preserved. One natural raw34 QGL automatic recovery is recorded on hardware. Broader scan/START fault coverage remains pending. September 9 local checks reproduced direct stock installation refusal and incomplete START_PRINT config restore; release is blocked. RC4 to RC5 upgrade and second apply zero writes passed in isolation. Runtime and installer code are unchanged in this documentation revision.

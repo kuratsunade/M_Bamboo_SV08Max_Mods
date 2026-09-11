@@ -1,9 +1,19 @@
-# RC4 Deployment, Restore, and Transaction Rollback
+# Deployment, Restore, and Transaction Rollback
 
-> RC5 status, 2026-09-09: direct stock installation is currently refused. Full Restore after RC4 to RC5 upgrade leaves the RC5 START_PRINT core and is not a complete removal path. Do not use that candidate procedure for downgrade until fixed and tested. The intended policy below and historical RC4 results do not override these blockers. See [current evidence](RC5_TEST_EVIDENCE.md).
+This document retains the public baseline installer contract and identifies where the development candidate does not yet meet it. Runtime recovery of an Eddy fault is a different mechanism from installer rollback or Full Restore.
 
+## Version applicability
 
-This document describes the **current v1.0.0-rc4 installer contract**. It does not document historical EC2 test-installer behavior.
+| Path | Public baseline | Current development candidate |
+| --- | --- | --- |
+| Stock installation | Historical validation | Refused by the START_PRINT lineage guard |
+| Recognized RC4 upgrade | Use the target release installer | Isolated upgrade passed; second apply zero writes |
+| Full Restore | Historical validation | Incomplete: CONFIG_START_PRINT_CORE remains in Macro.cfg |
+| Automatic write rollback | Transaction policy | Not equivalent to Full Restore; complete candidate matrix still pending |
+
+Do not apply the candidate's restore procedure for complete removal or downgrade. See [offline findings](RC5_OFFLINE_INSTALLER_FINDINGS.md) for reproduction and [Validation](../VALIDATION.md) for release gates. The sections below describe the intended contract; they do not override this table.
+
+中文：下文沿用公开基线的安装与恢复契约。当前候选原厂直接安装被拒绝，完整恢复残留启动宏；RC4 升级及第二次零写入仅在隔离环境通过。事务回滚不等于完整恢复，候选卸载与降级路径尚未验收。
 
 ## 1. Dry run first
 
@@ -93,6 +103,8 @@ transaction directory. If apply/compile/hash/restart validation fails, the insta
 Current RC4 policy is to clean installer-owned transaction scratch after success and after a **confirmed successful automatic rollback**. If automatic rollback itself fails, the transaction snapshot is deliberately retained and its exact path is reported so manual byte recovery remains possible. The durable normal-state recovery source remains the original-state `mb_bak` plus deterministic cfg inverse transformations.
 
 ## 6. Full Restore
+
+The commands in this section document the public baseline contract. They are not a qualified removal procedure for the current development candidate.
 
 Dry-run:
 

@@ -1,17 +1,17 @@
 # M_Bamboo SV08 Max — 命令与公共接口参考
 
-## RC5 新增接口与恢复 ownership
-
-`M_BAMBOO_RECOVERY_STATUS` 无运动，显示 GR1 ready、当前和上次 owner、结果、本次恢复数、会话累计恢复数及包装命令。`M_BAMBOO_START_SEQUENCE` 是 managed START_PRINT 的协调入口，不替代切片启动命令；完整准备仍使用正常 START_PRINT。
-
-GR1 仅包装 G28、RUN_PROBE_VIR_CONTACT、CLEAN_NOZZLE、Z_OFFSET_CALIBRATION、QUAD_GANTRY_LEVEL、BED_MESH_CALIBRATE。不单独包装 BASE 或任意校准命令。START coordinator 活动时保持 owner。预算与自然故障取证见[测试计划](RC5_TEST_PLAN_CN.md)。下方旧的手动恢复说明只适用于自动 owner 已结束且确实需要手动恢复的场景。
-
-
 > **维护者：** Master_Bamboo / 竹子  
 > **范围：** 整个 `M_Bamboo_SV08Max_Mods` 项目，而不仅限于 ES-R4。  
 > **发布规则：** 本文档是项目的 **authoritative public-interface registry（公共接口权威清单）**。每当 command、macro、参数、兼容别名、诊断接口或 installer-facing interface 新增、修改、弃用或删除时，都必须同步维护。
 
 本文只记录 **M_Bamboo 新增、替换、包装、实质修改，或因为我们替换 backend 而需要明确继承责任的接口**。它不是完整的 Klipper/Sovol G-code 手册复制品。
+
+
+## RC5 新增接口与恢复 ownership
+
+`M_BAMBOO_RECOVERY_STATUS` 无运动，显示 GR1 ready、当前和上次 owner、结果、本次恢复数、会话累计恢复数及包装命令。`M_BAMBOO_START_SEQUENCE` 是 managed START_PRINT 的协调入口，不替代切片启动命令；完整准备仍使用正常 START_PRINT。
+
+GR1 仅包装 G28、RUN_PROBE_VIR_CONTACT、CLEAN_NOZZLE、Z_OFFSET_CALIBRATION、QUAD_GANTRY_LEVEL、BED_MESH_CALIBRATE。不单独包装 BASE 或任意校准命令。START coordinator 活动时保持 owner。预算与自然故障取证见[测试计划](RC5_TEST_PLAN_CN.md)。下方旧的手动恢复说明只适用于自动 owner 已结束且确实需要手动恢复的场景。
 
 ---
 

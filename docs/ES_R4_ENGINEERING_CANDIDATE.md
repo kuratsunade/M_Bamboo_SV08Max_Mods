@@ -2,6 +2,9 @@
 
 Status: **engineering candidate / healthy-path hardware validation complete; one natural FS1.1 raw-34 fault/recovery path validated end-to-end; continued fault soak in progress**
 
+
+> Historical core design reference. Later revisions and recovery descriptions below record their original stage. For the current candidate, use [Technical FAQ](TECHNICAL_FAQ.md), [Recovery Supervisor Design](RC5_RECOVERY_SUPERVISOR_DESIGN.md), [START Design](RC5_START_RECOVERY_DESIGN.md) and [Test Evidence](RC5_TEST_EVIDENCE.md). This document does not make a current release or mandatory-restart claim.
+
 ## Scope
 
 ES-R4-EC2 is an error-integrity and recovery-safety candidate built on the exact ES-R3 / ZC-FR1 lineage. It does not require MCU firmware recompilation and does not modify `bed_mesh.py`.

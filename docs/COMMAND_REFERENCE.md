@@ -1,17 +1,17 @@
 # M_Bamboo SV08 Max — Command & Public Interface Reference
 
-## RC5 additions and recovery ownership
-
-`M_BAMBOO_RECOVERY_STATUS` reports GR1 readiness, active/last owner, result, recoveries in the invocation, session recovered total and wrapped commands; it causes no motion. `M_BAMBOO_START_SEQUENCE` is the managed START_PRINT coordinator entry, not a replacement slicer start command. Use ordinary START_PRINT for complete preparation.
-
-GR1 wraps exactly G28, RUN_PROBE_VIR_CONTACT, CLEAN_NOZZLE, Z_OFFSET_CALIBRATION, QUAD_GANTRY_LEVEL and BED_MESH_CALIBRATE. It does not independently wrap BASE or arbitrary calibration commands. START remains owner while its coordinator is active. See [current test plan](RC5_TEST_PLAN.md) for budgets and natural fault observation. Older manual recovery instructions below apply only after the automatic owner has terminated and manual recovery is appropriate.
-
-
 > **Maintainer:** Master_Bamboo / 竹子  
 > **Scope:** Entire `M_Bamboo_SV08Max_Mods` project, not only ES-R4.  
 > **Release rule:** This document is an **authoritative public-interface registry** and must be reviewed whenever a command, macro, parameter, compatibility alias, diagnostic interface, or installer-facing interface is added, changed, deprecated, or removed.
 
 This reference documents **interfaces that M_Bamboo adds, replaces, wraps, materially changes, or intentionally carries forward because modified backends expose them**. It is not a copy of the complete Klipper or Sovol G-code manual.
+
+
+## RC5 additions and recovery ownership
+
+`M_BAMBOO_RECOVERY_STATUS` reports GR1 readiness, active/last owner, result, recoveries in the invocation, session recovered total and wrapped commands; it causes no motion. `M_BAMBOO_START_SEQUENCE` is the managed START_PRINT coordinator entry, not a replacement slicer start command. Use ordinary START_PRINT for complete preparation.
+
+GR1 wraps exactly G28, RUN_PROBE_VIR_CONTACT, CLEAN_NOZZLE, Z_OFFSET_CALIBRATION, QUAD_GANTRY_LEVEL and BED_MESH_CALIBRATE. It does not independently wrap BASE or arbitrary calibration commands. START remains owner while its coordinator is active. See [current test plan](RC5_TEST_PLAN.md) for budgets and natural fault observation. Older manual recovery instructions below apply only after the automatic owner has terminated and manual recovery is appropriate.
 
 ---
 

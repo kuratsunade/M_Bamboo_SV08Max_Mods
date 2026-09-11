@@ -1,59 +1,54 @@
 # M_Bamboo_SV08Max_Mods
 
-一个面向 **Sovol SV08 Max（500 × 500）** 的模块化 Klipper 改进项目，重点覆盖 Z 轴安全、Eddy 可靠性、校准流程、配置优化、诊断能力和可回滚发布。
+一个面向 **Sovol SV08 Max（500 × 500）** 的模块化 Klipper 改进项目，重点覆盖安全、校准、配置维护、诊断与可回滚发布流程。
 
-> Maintainer：**Master_Bamboo / 竹子**
-> 当前公开基线：**v1.0.0-rc4**
-> RC5：**开发候选；部分实机验证完成，安装恢复仍有发布阻塞**
-> Runtime Safety 基线：**ES-R4-EC2-FS1.1**
+> Maintainer：**Master_Bamboo / 竹子**\
+> 当前公开基线：**v1.0.0-rc4**\
+> 本分支：**1.0.0-rc5-dev；SR1 + RS1 + GR1**\
+> Runtime Safety：**ES-R4-EC2-FS1.1**\
+> 状态：**开发候选；部分实机验证完成，安装与恢复验收仍未完成**\
 > [English README](README.md)
 
-## 项目状态
+## 项目概览
 
-RC4 仍为公开候选版，下方 bootstrap 指向 `main`。`rc5-dev` 已包含 SR1 启动协调、RS1 快速扫描过期回调保护，以及覆盖六个公开操作的 GR1 有界恢复。
+`M_Bamboo_SV08Max_Mods` 是针对 Sovol SV08 Max 原厂 Klipper 软件栈的一组模块化改进。项目不替换整套 Sovol 固件，也不要求重新编译或刷写 MCU firmware，而是在保留触摸屏、Eddy contact probe、原厂硬件接口与既有调用方式的前提下，对关键流程进行有边界的修正、加固和优化。
 
-9 月 8 日实机记录包含多次健康 G28/QGL/网格，以及一次无需固件重启的自然 raw34 QGL 自动恢复。确切组合版仍需补充 active scan 故障恢复及完整打印观察。
+项目重点不是追求“最新版 Klipper”本身，而是解决 SV08 Max 在实际使用中暴露出的几个核心问题：
 
-9 月 9 日离线检查发现发布阻塞：直接原厂安装被拒绝；RC4 升 RC5 后 Full Restore 虽报告成功，Macro.cfg 仍残留 RC5 START_PRINT core。在修复前，不依赖该候选版完成卸载或降级。RC5 尚未正式发布。
+- 归零、Probe 与 Z 坐标可信状态之间的边界不够严格；
+- Eddy 通讯异常、探测失败与后续 Z 运动之间缺少足够强的安全约束；
+- 部分 Z 校准与擦嘴流程存在可重复性或运动边界问题；
+- 原厂部分运动、QGL、电流与网格参数偏激进，维护与调试成本较高；
+- 定制 Eddy 栈发生异常时，可观察性不足；
+- 修改过的配置和 Python 后端缺少统一、可验证、可恢复的发布生命周期。
 
-见[当前测试计划](docs/RC5_TEST_PLAN_CN.md)及[测试证据](docs/RC5_TEST_EVIDENCE_CN.md)。
+M_Bamboo 的目标是让这些行为更安全、更确定、更容易诊断，并确保项目自己的修改能够明确识别、升级和完整恢复。
 
-## 项目边界
-
-M_Bamboo **不修改、不重新编译、不刷写，也不替换 Sovol MCU 固件**。这不是 RC5 的临时选择，而是整个项目的固定原则。
-
-源码审计已经确认 Sovol STM32F1 I2C / LDC 底层存在会让失败 transaction 边界变得模糊的实现问题。M_Bamboo 会在 MCU 与 Klipper 主机层的交界处明确停止继续向下接管：MCU 已经提供的 fault telemetry 作为底层故障证据，而 transaction isolation、PREARM、stream quarantine、Z 坐标可信度、lifecycle cleanup 和 bounded workflow recovery 全部在 Klipper host/config 层完成。
-
-详细 high-level / low-level 分析见 [Sovol STM32F1 I2C / Eddy 根因审计](docs/I2C_ROOT_CAUSE_AND_HOST_BOUNDARY_CN.md)。
+详细的故障模型、实现细节、证据边界和仍在验证的项目不会全部放在 README 中，请参阅后面的技术文档入口。
 
 ## 功能概览
 
-| 功能 | 主要用途 | 当前状态 |
-|---|---|---|
-| **Safe Home** | Z 未知或不可信时先建立安全间隙，再通过真实 Eddy Z Home 建立可信参考 | 已完成实机验证 |
-| **Config Optimization** | 调整运动、QGL、电流、自适应网格、buffer stepper 等 SV08 Max 参数 | 已有实机验证 lineage |
-| **Eddy Safety / Calibration** | 负责 transport fault、PREARM、transaction taint、quarantine、Z trust、bounded recovery 与校准完整性 | RC4 已验证；RC5 继续 hardening |
-| **Z Calibration Refinement** | 两阶段 Z 校准、contact verification、最终 XY reseat | 已完成实机验证 |
-| **Nozzle Cleaner** | 使用真实 contact datum 建立擦嘴平面，避开旧流程的 below-limit plunge | 已完成实机验证 |
-| **Diagnostics** | Eddy 状态、recovery check 及显式压力测试 / 诊断接口 | 默认软件功能集包含 |
-| **Hardware Cooling** | 为对应物理散热改装提供配套配置 | 可选；`all` 不安装 |
-| **Full Restore** | 移除 M_Bamboo 自己管理的修改，恢复可信 pre-M_Bamboo backend | Installer 功能 |
+| 功能 | 主要用途 | 当前状态 | 默认随 `all` 安装 |
+|---|---|---|---:|
+| **Safe Home** | 在 Z 不可信时先建立安全间隙，再进行 XY 归零，并最终通过真实 Eddy Z Home 建立可信坐标 | 已完成实机验证 | 是 |
+| **Config Optimization** | 调整运动、QGL、电流、自适应网格、buffer stepper 与相关参数，使默认行为更适合 SV08 Max | 已有实机验证 | 是 |
+| **Eddy Safety / Calibration** | 加固 Eddy 通讯、Probe、Z trust、校准事务与故障阻断，并提供恢复检查与状态诊断 | 健康流程及一次自然 QGL 故障自动恢复已验证；其他故障场景仍需覆盖 | 是 |
+| **Z Calibration Refinement** | 改善两阶段 Z 校准、contact verification 与最终 XY reseat 的机械一致性 | 沿用已验证实现；接触测量重复性仍在调查 | 随 Eddy Safety 安装 |
+| **Nozzle Cleaner** | 使用一次真实 contact datum 建立擦嘴平面，避免旧流程中的确定性 Z 越界路径 | 已集成并实机验证 | 随 Config Optimization 安装 |
+| **Diagnostics** | 提供 Eddy 状态、恢复检查以及 XY stress 等诊断接口，不会因安装而自动执行压力测试 | 已正式纳入 release ownership | 是 |
+| **Hardware Cooling** | 为已经完成对应物理散热改装的机器提供配套配置 | 可选，需要硬件改装 | **否** |
+| **Full Restore** | 移除 M_Bamboo 管理的配置修改，并恢复安装前的可信后端原始状态 | 必需的恢复契约；当前候选仍有配置恢复缺陷 | 通过 installer 提供 |
 
-PLR 重构和实验性的 Gantry Safe Leveler **不属于当前 RC5 scope**。
-
-## Eddy recovery 模型
-
-PREARM 继续作为 Eddy 操作前的安全门。GR1 包装 `G28`、`RUN_PROBE_VIR_CONTACT`、`CLEAN_NOZZLE`、`Z_OFFSET_CALIBRATION`、`QUAD_GANTRY_LEVEL`、`BED_MESH_CALIBRATE`。
-
-只有最外层同步 owner 可在失败操作结束、新通信或 PREARM 证据出现后恢复。先无运动检查通信，必要时 Safe Home 重建 Z，再完整重跑失败操作一次。二次故障或恢复失败即终止；普通错误照常抛出；异步回调不启动流程恢复。
-
-START_PRINT 内由 SR1 负责。每阶段调用最多一次恢复，整次 START 最多三个独立事件。此预算已实现，仍需扩大自然实机覆盖。健康扫描参数和现有两阶段 Z 校准顺序保持不变。
+当前 RC 不包含 PLR 重构和实验性的 Gantry Safe Leveler。它们不属于默认安装，也不是当前 RC 的运行依赖。具体某个版本新增、删除或调整了什么，请查看 [Release Notes](RELEASE_NOTES_CN.md)。
 
 ## 如何安装
 
-以下公开安装与恢复流程针对 RC4。RC5 当前存在 START_PRINT 配置恢复缺陷，不能把它当作完整卸载或降级路径。
+本分支是开发候选。下方公开 bootstrap 安装 `main`，不会安装本分支；候选测试使用身份明确的开发 checkout 或包内 installer。当前候选拒绝原厂直接安装，Full Restore 也未完整实现，详情见[部署与恢复](docs/DEPLOYMENT_AND_ROLLBACK.md)。不能把公开版安装说明当作候选版已经通过验收的证明。
 
-### GitHub 一键入口
+
+### GitHub 一键安装入口
+
+GitHub 镜像使用 `main` 分支。SSH 登录打印机后可执行：
 
 ```bash
 cd /home/sovol
@@ -62,134 +57,329 @@ wget -O M_Bamboo_bootstrap.sh \
 sh M_Bamboo_bootstrap.sh all
 ```
 
-Installer 默认只做 dry-run。先看结果，确认无误后再执行：
+先检查预演结果，确认无误后再应用：
 
 ```bash
 sh M_Bamboo_bootstrap.sh all --apply
 ```
 
-Bootstrap 会先校验仓库根目录 `SHA256SUMS`，之后才调用正式 installer。
+Bootstrap 会先下载 GitHub 仓库快照并校验仓库根目录 `SHA256SUMS`，校验通过后才调用 `install.sh`。
 
-### 本地 package / 高级使用
+### 安装前准备
 
-查看当前状态：
+安装前建议先确认：
+
+1. 打印机处于空闲状态，没有正在打印或执行校准。
+2. 可以通过 SSH 登录 Sovol 主机。
+3. 当前 Klipper 能够正常启动。
+4. 如果机器安装过其他会修改 `printer.cfg`、`Macro.cfg` 或 `klippy/extras/*.py` 的第三方 mod，先确认其修改范围。
+5. 不要在不了解冲突原因的情况下手工绕过 installer 的来源检查或配置冲突检查。
+
+将 release 包下载或复制到打印机后解压，并进入项目目录。
+
+安装程序默认是**预演模式**。不加 `--apply` 时不会真正修改文件。
+
+### 本地包预览与应用
+
+先查看当前机器状态：
 
 ```bash
 ./install.sh all --status
 ```
 
-预览：
+预览计划修改：
+
+```bash
+./install.sh all
+```
+
+如果希望查看更具体的文件差异：
+
+```bash
+./install.sh all --raw-diff
+```
+
+对于来源明确且支持的升级，检查候选限制、确认预演结果正确后执行：
+
+```bash
+./install.sh all --apply
+```
+
+`all` 会安装正常的软件功能，包括 Diagnostics，但**不会安装 Hardware Cooling**。
+
+安装完成并确认 Klipper 正常重启后，在第一次运动前建议执行：
+
+```text
+M_BAMBOO_EDDY_STATUS
+```
+
+确认没有异常 fault 后，再执行一次普通：
+
+```text
+G28
+```
+
+首次安装或大版本升级后，建议按照 [实机验证指南](docs/HARDWARE_VALIDATION.md) 完成基础运动、Probe、QGL、Z calibration 与小型打印验证，再恢复无人值守打印。
+
+### 只安装某个功能
+
+可以按 feature 单独预览或安装：
+
+```bash
+./install.sh safe_home
+./install.sh safe_home --apply
+
+./install.sh config_optimization
+./install.sh config_optimization --apply
+
+./install.sh eddy_safety
+./install.sh eddy_safety --apply
+
+./install.sh diagnostics
+./install.sh diagnostics --apply
+```
+
+部分功能存在依赖关系，installer 执行 ownership 与依赖规则，manifest 记录发布范围。不要通过手工复制单个 backend 文件来代替正常安装流程。
+
+#### Hardware Cooling
+
+Hardware Cooling 是**显式可选功能**，永远不会由 `all` 自动安装：
+
+```bash
+./install.sh hardware_cooling
+./install.sh hardware_cooling --apply
+```
+
+只有机器已经完成对应物理散热改装时才应启用该功能。
+
+### 如何升级已有 M_Bamboo 安装
+
+使用**新 release 包自带的 installer**。
+
+先检查当前状态和 lineage：
+
+```bash
+./install.sh all --status
+```
+
+再进行预演：
 
 ```bash
 ./install.sh all
 ./install.sh all --raw-diff
 ```
 
-确认后应用：
+确认识别到的文件来源与计划修改均符合预期后：
 
 ```bash
 ./install.sh all --apply
 ```
 
-`all` 只安装当前 release 定义的默认软件功能。**Hardware Cooling 不包含在 `all` 中**，因为它依赖对应的物理改装。
+Installer 使用精确 SHA256 和已知 lineage 判断可接管的后端文件。对于无法确认来源的文件，它会 fail closed，而不是猜测“这大概是原厂文件”。
 
-也可以单独预览 / 安装 feature：
+### 安装被拒绝时如何处理
 
-```bash
-./install.sh safe_home
-./install.sh config_optimization
-./install.sh eddy_safety
-./install.sh diagnostics
-```
+Installer 的 refusal 通常是保护机制。遇到拒绝时，优先确认原因，不建议为了继续安装而直接修改 installer 或手工覆盖文件。
 
-确认 dry-run 后再加 `--apply`。
+#### Unknown backend / provenance refusal
 
-### Full Restore
+如果提示后端文件未知、来源无法识别或 first takeover 被拒绝：
 
-先预览：
+1. 保存 installer 的完整输出。
+2. 执行：
 
 ```bash
-./install.sh all --restore
+./install.sh all --status
+./install.sh all --raw-diff
 ```
 
-确认后执行：
+3. 确认相关文件是否来自：
+   - 不同版本的 Sovol 固件；
+   - 其他第三方 mod；
+   - 手工修改过的 Klipper backend；
+   - 旧 M_Bamboo engineering package。
+4. 在来源明确之前不要强行覆盖。
 
-```bash
-./install.sh all --restore --apply
-```
+当前 installer 故意不提供通用 `--force` 来接管未知 Python backend。
 
-Full Restore 只撤销 M_Bamboo 自己拥有的配置变换，并从可信 original-state archive 恢复由项目接管的 Python backend。
+#### 配置冲突
 
-如果要安装历史版本，支持的路径是：
+如果 installer 报告现有配置无法安全转换：
+
+1. 查看报告的 section / managed block。
+2. 使用 `--raw-diff` 确认将要发生的修改。
+3. 判断冲突内容属于用户自己的配置、其他 mod，还是旧版 M_Bamboo block。
+4. 只有在 ownership 明确后再手工处理冲突，并重新运行预演。
+
+M_Bamboo 不应为了“安装成功”而静默覆盖与项目无关的用户配置。
+
+#### 写入过程中失败
+
+所有实际写入都使用事务机制。
+
+正常情况下：
 
 ```text
-当前 release
--> Full Restore
--> 回到 pre-M_Bamboo / original state
--> 使用目标历史 release 自己的 installer
+write failure
+→ automatic rollback
+→ restore immediate pre-transaction state
 ```
 
-## Installer 原则
+如果自动 rollback 本身也无法完成，installer 会保留恢复快照，并在错误信息中显示类似：
 
-- 默认 dry-run；
-- Python backend 使用精确 SHA / provenance gate；
-- 未知 backend lineage 一律 fail closed；
-- `printer.cfg` / `Macro.cfg` 使用稳定、feature-owned marker；
-- `klippy/extras/mb_bak/` 只保存一份可信 pre-M_Bamboo backend archive；
-- 实际写入使用 transaction snapshot 和自动 rollback；
-- 成功或安全回滚后清理临时 installer / download / extraction 文件；
-- 不提供通用 force-overwrite 去接管未知 Python backend。
+```text
+/tmp/M_Bamboo_SV08MAX.*
+```
 
-## 常见问题
+在完成机器恢复或把该目录复制到安全位置之前，不要删除它。
 
-### 这是一套替代 Sovol 的第三方固件吗？
+#### Klipper 安装后无法正常启动
 
-不是。M_Bamboo 不修改或刷写 MCU firmware。项目主要工作在 Klipper host Python、配置、宏和 installer lifecycle，同时保留 SV08 Max 依赖的 Sovol 硬件 / G-code ABI。
+不要立即执行 `G28`、Probe、QGL 或其他运动。
 
-### 为什么不直接升级到最新版 Official Klipper？
+优先保留：
 
-SV08 Max 包含 Sovol 自己的 Eddy contact、MCU command、Z calibration、触摸屏调用方式以及其他硬件集成。M_Bamboo 会有选择地采用更清晰的 upstream 语义，但不会为了“更新”而直接替换这些机器实际依赖的接口。
+- installer 完整输出；
+- `klippy.log`；
+- `./install.sh all --status` 输出；
+- installer 报告的 transaction snapshot 路径，如果存在。
 
-### PREARM 能保证以后绝对不会再发生 I2C fault 吗？
+先保留证据再选择恢复路径。当前候选的 Full Restore 不完整，应按[部署与恢复](docs/DEPLOYMENT_AND_ROLLBACK.md)中的版本适用范围处理。
 
-不能。PREARM 的作用是：transport 已经不健康，或者刚刚观察到不稳定时，不允许直接进入危险的 bed-facing Z action。若新的 fault 在 motion 开始后才发生，则由 runtime transaction guard 中止 / taint 当前事务，并按上下文撤销 Z trust。
+### 完整恢复
 
-### RC5 会在 `START_PRINT` 中自动恢复 PREARM / transport fault 吗？
+Full Restore 是项目的完整移除契约：撤销项目拥有的配置变化，恢复可信原始后端。它与写入失败时的事务回滚不同。
 
-会，但只针对 Safety Core 判定为可以安全恢复的 fault，并且有明确次数上限和 checkpoint 规则。Recovery 本身失败时不会继续 blind retry。
+当前开发候选尚未满足完整配置恢复契约，不应把它的 restore 命令用于完整卸载或降级。[部署与恢复](docs/DEPLOYMENT_AND_ROLLBACK.md)区分了公开基线行为、候选限制及预期的历史版本安装路径。
 
-### transport recovery 成功后，刚才失败的 Probe / QGL / mesh transaction 会重新变有效吗？
+## 总览 FAQ
 
-不会。失败 transaction 永远无效。RC5 会从 clean checkpoint 重跑它所属的完整 atomic stage。
+### 这是不是一套替代 Sovol 的第三方固件？
 
-### 当前 RC5 包含 PLR 吗？
+不是。项目当前不重新编译或刷写 Sovol MCU firmware，也不是一套完整替换系统。它主要修改 Klipper 用户空间 Python、配置、宏和 installer lifecycle，同时保留 SV08 Max 依赖的 Sovol 硬件接口与调用习惯。
 
-不包含。PLR 仍是独立 feature，因为它自己的 checkpoint identity 和 coordinate-trust model 需要单独处理。
+### 为什么不直接把 SV08 Max 升级到最新版 Official Klipper？
 
-### `all` 会安装 Hardware Cooling 吗？
+因为 Sovol 在 SV08 Max 上存在定制 Eddy contact、Z calibration、触摸屏调用方式和其他硬件相关实现。直接整体替换上游 Klipper 可能破坏这些接口。M_Bamboo 的做法是有选择地采用更合理的 upstream 语义，同时保留机器实际需要的 Sovol ABI 和硬件行为。
 
-不会。Hardware Cooling 明确 opt-in，因为它依赖真实硬件改装。
+### 这个项目最主要改善的是什么？
 
-### 可以完整恢复吗？
+核心不是单纯“调快”或“调参数”，而是重新收紧 Z trust、Probe failure、Eddy transport fault、校准事务和恢复行为之间的边界，同时改善归零、Z calibration、nozzle cleaning、QGL、运动参数和诊断能力。
 
-Full Restore 是设计中的完整移除路径。公开 RC4 有历史验证；当前 RC5 候选版仍有上述配置恢复缺陷。
+### `all` 会修改机器上的所有东西吗？
 
-## 文档
+不会。`all` 只代表当前 release 定义的默认软件 feature 集合。Hardware Cooling 因为依赖物理改装，明确不在 `all` 中。Installer 也只应修改它明确拥有的 backend 和配置 transformation。
 
-- **[版本记录](RELEASE_NOTES_CN.md)** — release 历史、范围与已知限制。
-- **[技术 FAQ](docs/TECHNICAL_FAQ_CN.md)** — 当前有效的安全 / recovery 设计依据与 fault 解释。
-- **[Sovol I2C / Eddy 根因审计](docs/I2C_ROOT_CAUSE_AND_HOST_BOUNDARY_CN.md)** — 源码历史、bitmask、BUSY pin lookup、失败数据边界，以及 M_Bamboo 明确 cut tie 的位置。
-- **[RC5 START 自动恢复设计](docs/RC5_START_RECOVERY_DESIGN_CN.md)** — atomic stage、recovery ownership、dependency handling 与 validation requirements。
-- **[RC5 测试证据](docs/RC5_TEST_EVIDENCE_CN.md)** — 完整测试统计、fault context、recovery 结果、被修正的假设与证据边界。
-- **[Eddy Safety Engineering Design](docs/ES_R4_ENGINEERING_CANDIDATE.md)** — transport-fault architecture 与 transaction safety model。
-- **[实机验证指南](docs/HARDWARE_VALIDATION.md)** — 实机验证顺序和 pass/fail criteria。
-- **[部署与恢复](docs/DEPLOYMENT_AND_ROLLBACK.md)** — installer transaction、provenance 与 restore 机制。
-- **[命令参考](docs/COMMAND_REFERENCE_CN.md)** — G-code、Macro、installer CLI 与 public interface。
-- **[Offline Validation](VALIDATION.md)** — package / static release gate。
-- **[Version Map](VERSION_MAP.md)** / **[Manifest](MANIFEST.md)** — exact artifact、ownership 与 lineage。
+### 安装 Diagnostics 会自动运行 XY stress test 吗？
+
+不会。Diagnostics 只是安装公开诊断接口。XY stress 等动作需要用户显式调用。
+
+### 当前版本包含断电续打 PLR 吗？
+
+不包含。原厂 PLR 的恢复点身份和坐标可信模型存在需要单独解决的问题，因此 PLR 重构被保留为独立后续 feature，而不是为了赶当前 RC 直接带入。
+
+### 如果安装后不满意，能恢复原厂或安装前状态吗？
+
+这是 Full Restore 的目标契约，依赖一份可信原始后端归档。公开基线有历史验证；当前开发候选仍有配置恢复缺陷。执行移除前请参阅部署与恢复。
+
+### 能直接从新版本 downgrade 到任意旧版本吗？
+
+当前不提供通用降级引擎。预期流程是已验证的 Full Restore，再使用目标历史版 installer。当前候选必须先解决恢复缺陷，才能依赖这条路径。
+
+### 候选版会自动恢复 Eddy 故障吗？
+
+对受支持的操作和新出现的可恢复通信或 PREARM 故障，会。最外层操作验证通信，必要时重建 Z，再完整重跑失败操作一次。操作完成前再次故障或恢复失败时终止。START_PRINT 负责自己的嵌套阶段，并有整体次数上限。范围与设计理由见 [Technical FAQ](docs/TECHNICAL_FAQ_CN.md)。
+
+### 这是否证明所有 Eddy 故障都解决了？
+
+没有。组合候选已有健康运行及一次自然 QGL 故障自动恢复记录。快速扫描运行期间故障恢复、更多启动故障场景及长期稳定性仍待验证。[测试证据](docs/RC5_TEST_EVIDENCE_CN.md)明确区分当前结果与旧版本测试。
+
+## 文件 Ownership、备份与项目原则
+
+### 文件 Ownership
+
+项目尽量让每项修改都有明确 owner，而不是把所有逻辑塞入一个宏或整份配置文件。
+
+| 文件 / 范围 | 主要职责 |
+|---|---|
+| `M_Bamboo_Safe_Homing.py` | Safe Home 与 coordinate trust orchestration |
+| `probe.py` | 普通 non-contact probe 的安全 endpoint policy |
+| `probe_eddy_current.py` | Eddy 状态、故障处理、诊断、事务追踪，以及有界操作与启动恢复 |
+| `ldc1612.py` | LDC1612 transport / telemetry 与相关底层状态 |
+| `z_offset_calibration.py` | Z calibration、contact verification 与 final XY reseat |
+| `printer.cfg` | 只通过明确、可逆的 feature transformation 管理项目拥有的配置 |
+| `Macro.cfg` | 通过稳定的 M_Bamboo managed block 管理宏与流程编排 |
+| `installer.py` | provenance、feature ownership、transaction、restore 与 release lifecycle |
+
+具体 public command、参数、兼容接口和 feature ownership 以 [命令与公开接口参考](docs/COMMAND_REFERENCE_CN.md) 为准。
+
+### 配置文件原则
+
+`printer.cfg`、`Macro.cfg` 等用户配置不使用持久化整文件备份作为正常 restore 机制。
+
+M_Bamboo 优先使用稳定、机器可识别的 marker：
+
+```text
+# >>> M_Bamboo_SV08MAX_MOD:<FEATURE> BEGIN >>>
+...
+# <<< M_Bamboo_SV08MAX_MOD:<FEATURE> END <<<
+```
+
+Restore 只逆转 M_Bamboo 拥有的变换，尽量保留与项目无关的用户内容和 `SAVE_CONFIG` 生成内容。
+
+### Python backend 备份原则
+
+由 M_Bamboo 接管的 Klipper backend 只保留一份经过 provenance 验证的 pre-M_Bamboo 原始状态：
+
+```text
+/home/sovol/klipper/klippy/extras/mb_bak/
+```
+
+它建立后不会在普通升级时被覆盖。
+
+Legacy `.mb_baseline` 只有在完整 SHA256 能证明其为原厂内容时才可作为迁移输入。对于已识别的 M_Bamboo lineage，如果 legacy baseline 缺失或已被污染，安装程序可以检查 Sovol 自带的 factory mirror，但同样必须精确匹配已知原厂 SHA256；任何文件都不会仅凭路径或文件名获得信任。
+
+### Transaction 临时快照
+
+每次实际写入都会建立临时 transaction snapshot。
+
+- 安装成功：清理；
+- 安装失败且 automatic rollback 成功：清理；
+- rollback 本身失败：保留并报告路径，用于人工恢复。
+
+### 项目原则
+
+- 不要求重新编译或刷写 Sovol MCU firmware；
+- 尽量保持触摸屏与 Sovol 现有 G-code / hardware ABI 兼容；
+- 在兼容硬件接口的前提下，让行为向更清晰的 Klipper 语义靠拢；
+- feature 必须有明确 ownership，尽量支持独立安装、升级和恢复；
+- 配置修改优先采用局部、可逆 transformation，不整文件接管用户配置；
+- 未知 backend provenance 一律 fail closed；
+- 安装写入必须可 transaction rollback；
+- 安全结论必须区分 code-proven、hardware-observed、engineering inference 与 pending validation；
+- 不为了完成 release checklist 而把未经验证的功能塞入默认安装。
+
+## 文档入口
+
+README 负责项目总览、功能定位和安装使用。更深入的技术内容与 release-specific 信息分别维护在下面的文档中：
+
+- **[Release Notes](RELEASE_NOTES_CN.md)**：每个 release 的确切变化、范围与已知限制。
+- **[命令与公开接口参考](docs/COMMAND_REFERENCE_CN.md)**：G-code、宏、installer CLI、参数、兼容别名和 public interface contract。
+- **[Technical FAQ](docs/TECHNICAL_FAQ_CN.md)**：Sovol 已确认问题、设计理由、安全模型、错误解释、证据边界与剩余不确定性。
+- **[RC5 自动恢复设计](docs/RC5_RECOVERY_SUPERVISOR_DESIGN_CN.md)** / **[START 设计](docs/RC5_START_RECOVERY_DESIGN_CN.md)**：最外层 ownership、重跑契约和次数上限。
+- **[快速扫描修复](docs/RC5_RS1_RAPID_SCAN_RESTORATION.md)**：会话生命周期保护，保持健康测量语义。
+- **[测试证据](docs/RC5_TEST_EVIDENCE_CN.md)** / **[当前测试计划](docs/RC5_TEST_PLAN_CN.md)**：已完成观察、缺失场景及实机测试。
+- **[Sovol I2C 源码审计](docs/I2C_ROOT_CAUSE_AND_HOST_BOUNDARY_CN.md)**：底层问题与主机层修改边界。
+- **[Eddy Safety 工程设计](docs/ES_R4_ENGINEERING_CANDIDATE.md)**：更深入的 Eddy Safety 架构、transport fault 与 transaction 模型。
+- **[实机验证指南](docs/HARDWARE_VALIDATION.md)**：实机验证顺序、pass/fail 标准和当前 evidence。
+- **[部署与恢复](docs/DEPLOYMENT_AND_ROLLBACK.md)**：installer transaction、恢复机制和故障恢复细节。
+- **[离线验证](VALIDATION.md)**：package、代码与静态 release gate。
+- **[Version Map](VERSION_MAP.md)** / **[Manifest](MANIFEST.md)**：exact artifact、lineage、ownership 和 release package 信息。
 
 ## 免责声明
 
-本项目会修改大型 CoreXY 打印机上的 Klipper 行为，包括归零、Probe、Z 校准、运动参数和 recovery logic。安装前请检查 dry-run；完成大版本升级后，应先完成基础实机验证，再恢复无人值守打印。
+本项目会修改大型 CoreXY 3D 打印机上的 Klipper 行为，包括归零、Probe、Z calibration、运动参数和相关安全流程。安装前请阅读预演结果，并在真实机器上完成基础运动和打印验证后再进行无人值守使用。
 
-本项目由社区维护，与 Sovol 无官方隶属或背书关系。开发与技术文档可能包含 AI-assisted analysis；安全结论最终应以源码审查、可复现测试、maintainer review 和明确实机证据为依据。
+本项目为社区维护项目，与 Sovol 官方无隶属或授权关系。使用者应自行评估机器状态、硬件改装和第三方修改的兼容性。
+
+项目开发和技术文档可能包含 AI 辅助工作。硬件行为与安全相关结论最终应以源码检查、维护者审核、可复现测试和明确的实机证据为准。
