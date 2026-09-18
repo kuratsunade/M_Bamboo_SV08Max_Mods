@@ -1,5 +1,7 @@
 # RC5 test plan
 
+The new GR1.1 candidate adds inherited-fault checks to independent G28. See [behavior and acceptance](RC5_G28_ENTRY.md). Offline tests only; hardware validation is pending. START_PRINT, the axis-routing macro and retry limits are unchanged.
+
 Updated 2026-09-09. [中文](RC5_TEST_PLAN_CN.md) | [Evidence and release blockers](RC5_TEST_EVIDENCE.md)
 
 ## What needs testing now

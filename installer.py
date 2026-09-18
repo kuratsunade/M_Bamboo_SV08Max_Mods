@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent
 
 BACKEND_TARGETS = {
     "ldc1612.py": "aa25833c27367905c68f27dfa6e4d669ddfe304bdaa23febee8287737f757e04",
-    "probe_eddy_current.py": "5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29",
+    "probe_eddy_current.py": "119b6bf46f01ea40d2c946ddce7864d29e413b90eb7b7591572d5bed82b41aae",
     "probe.py": "227d0c6b8527ece1793caf969d5292646ec185f65ca1c679ccf4195515dd529a",
     "M_Bamboo_Safe_Homing.py": "5f85a1a397413a7ab5da28d2b19b586a6d371b49a4793b80bc685d5adb0f9038",
     "z_offset_calibration.py": "1089df132131010f774d40b331fef4ff6ba02252f4b55c107846c6cc0a7a75ce",
@@ -34,6 +34,8 @@ KNOWN_STOCK_SOURCES = {
         "5992b2189b40bc4ae7a33d804a5584f74620e3db6d75ab3f6151daca2c895547",
     },
     "probe_eddy_current.py": {
+        # Exact previous RC5 combined development candidate.
+        "5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29",
         "4a45a563b40ecc2d06eaa37ee1eebbdfe3f4d21827ffe7918316ac480b65e14b",
     },
     "probe.py": {

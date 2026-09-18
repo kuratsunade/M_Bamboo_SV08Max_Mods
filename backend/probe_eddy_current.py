@@ -1758,7 +1758,7 @@ class MBambooRecoverySupervisor:
     owner.  Sensor, bulk, lookahead and toolhead-flush callbacks remain outside
     this workflow layer.
     """
-    VERSION = 'RC5-GR1'
+    VERSION = 'RC5-GR1.1'
     COMMANDS = (
         'G28',
         'RUN_PROBE_VIR_CONTACT',
@@ -1892,6 +1892,50 @@ class MBambooRecoverySupervisor:
                 raise gcmd.error(
                     'M_Bamboo recovery: fresh Safe Home did not restore trust')
 
+    def _g28_entry_pending(self, gcmd):
+        # This release's macro gives X/Y precedence over Z in mixed requests.
+        # Do not reinterpret its ABI or let such a request consume Z recovery.
+        params = gcmd.get_command_parameters()
+        axes = {axis for axis in ('X', 'Y', 'Z') if axis in params}
+        if axes and 'Z' not in axes:
+            return False
+        self._probe_obj.mcu_probe._consume_pending_transport_fault()
+        st = self._safety_status()
+        if st.get('transport_state') not in (
+                'TRANSPORT_FAULT', 'TRANSPORT_RECOVERED', 'HARD_COMM_FAULT'):
+            return False
+        if st.get('restart_required') or st.get('transport_state') == 'HARD_COMM_FAULT':
+            raise gcmd.error('M_Bamboo G28 entry: recovery locked; FIRMWARE_RESTART required')
+        if axes and axes != {'Z'}:
+            raise gcmd.error('M_Bamboo G28 entry: inherited fault requires G28 or G28 Z; mixed Z axes are not supported by this macro')
+        if not self._probe_obj.is_calibrated():
+            raise gcmd.error('M_Bamboo G28 entry: probe is not calibrated; automatic inherited-fault recovery refused')
+        self._safe_home()  # Refuse missing Safe Home before granting recovery.
+        return True
+
+    def _run_g28_entry(self, original, gcmd):
+        # The requested G28 itself is the one recovery home. Never call
+        # _recover() here: it homes separately before replaying the command.
+        self.recovery_count = 1
+        self.last_result = 'ENTRY_RECOVERY_FAILED'
+        self._probe_obj.mcu_probe.run_transport_recovery_check(gcmd)
+        st = self._safety_status()
+        if (st.get('restart_required') or st.get('transport_state') not in
+                ('HEALTHY', 'TRANSPORT_RECOVERED')):
+            raise gcmd.error('M_Bamboo G28 entry: transport check did not recover')
+        gcmd.respond_info('MBRECOVERY: G28 entry transport checked; executing the requested G28 once, with no further automatic retry')
+        # All errors propagate directly to the caller, outside the replay path.
+        result = original(gcmd)
+        st = self._safety_status()
+        if (st.get('restart_required') or st.get('fault_latched')
+                or st.get('transport_state') != 'HEALTHY'
+                or st.get('z_recovery_required') or not self._z_homed()):
+            raise gcmd.error('M_Bamboo G28 entry: requested homing did not restore healthy transport and Z')
+        self.recovered_total += 1
+        self.last_result = 'ENTRY_RECOVERED_SUCCESS'
+        gcmd.respond_info('MBRECOVERY: G28 entry recovery completed; transport healthy and Z homed')
+        return result
+
     def _dispatch(self, command, gcmd):
         original = self._original.get(command)
         if original is None:
@@ -1909,6 +1953,14 @@ class MBambooRecoverySupervisor:
         self.last_result = 'RUNNING'
         self.recovery_count = 0
         try:
+            if command == 'G28':
+                try:
+                    entry_pending = self._g28_entry_pending(gcmd)
+                except self.printer.command_error:
+                    self.last_result = 'ENTRY_REJECTED'
+                    raise
+                if entry_pending:
+                    return self._run_g28_entry(original, gcmd)
             before = self._marker(self._safety_status())
             try:
                 result = original(gcmd)

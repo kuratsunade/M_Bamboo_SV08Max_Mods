@@ -8,7 +8,7 @@ Build chain:
 
 `probe_eddy_current.py` SHA256:
 
-`5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29`
+`119b6bf46f01ea40d2c946ddce7864d29e413b90eb7b7591572d5bed82b41aae`
 
 The pre-RS1/GR1 hardware-tested intermediate is
 `dcb78d4d7d5108236eca23a225e6e582e1b128419bf10c8a5b83cf8de346ced0`.
@@ -16,3 +16,5 @@ The pre-RS1/GR1 hardware-tested intermediate is
 This file belongs to development migration/validation lineage and must
 be excluded from final public release compatibility tables unless the
 corresponding development artifact is intentionally published.
+
+Current host candidate: GR1.1 inherited-fault G28 entry. See [G28 entry notes](RC5_G28_ENTRY.md). This revision requires hardware validation; earlier hardware evidence applies to the previous runtime.

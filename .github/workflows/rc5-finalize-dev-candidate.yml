@@ -1,14 +1,8 @@
 name: RC5 finalize dev candidate
 
 on:
-  push:
-    branches: [rc5-dev]
-    paths:
-      - 'backend/probe_eddy_current.py'
-      - 'docs/RC5_DEV_COMBINED_RUNTIME_IDENTITY.md'
-      - 'release/config/start_print_core.block'
-      - 'tools/rc5_finalize_dev_candidate.py'
-      - '.github/workflows/rc5-finalize-dev-candidate.yml'
+  # Historical finalizer is manually invoked and pinned to the old runtime.
+  # Current candidates maintain identities in the same reviewed commit.
   workflow_dispatch:
 
 permissions:
