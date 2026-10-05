@@ -34,8 +34,6 @@ KNOWN_STOCK_SOURCES = {
         "5992b2189b40bc4ae7a33d804a5584f74620e3db6d75ab3f6151daca2c895547",
     },
     "probe_eddy_current.py": {
-        # Exact previous RC5 combined development candidate.
-        "5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29",
         "4a45a563b40ecc2d06eaa37ee1eebbdfe3f4d21827ffe7918316ac480b65e14b",
     },
     "probe.py": {
@@ -56,6 +54,8 @@ KNOWN_MB_SOURCES = {
         "aa25833c27367905c68f27dfa6e4d669ddfe304bdaa23febee8287737f757e04",
     },
     "probe_eddy_current.py": {
+        # Exact previous RC5 combined development candidate (not Sovol stock).
+        "5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29",
         "48cd4f98c2423970b6c49d138b78fb5805fd3e774d15ffb3d8d6575e844a06f9",
         "4b37c2ed58c085d16d842e8edabfaa9ffd8057b12f0d3aa7866f79ef85845f64",
         "1dd933700671d6b80709d9f55279f78630d031a8b440d5a71ddbe8f5de3b26e6",
