@@ -3,6 +3,26 @@
 [2026-09-09 offline reproduction and input hashes](RC5_OFFLINE_INSTALLER_FINDINGS.md)
 
 
+## Field update recorded 2026-10-05
+
+Two overlapping, reverse-chronological console excerpts were reviewed as one timeline. Times below are console labels; the excerpts contain no date/timezone or installed backend hash. The reporting date labels this entry, not independently verified log metadata. Repository reference at review: `e99cf300b112f5491856ecc53b86601c1d33ba8e`. Installed GR1.1 identity is not established by these excerpts. Raw logs and model filenames remain private.
+
+| Observation | Result and boundary |
+| --- | --- |
+| First task, 15:01 POST_ZCAL contact transaction 0013 | One new `raw34 / NACK\|BUSY` event, `seq=0 -> 1`. Active trsync stop requested; transaction failed with reported descent 0.000 mm; Z homing revoked from xyz to xy. Repeated fault lines represent the same event. Reported descent alone is not an independent physical stopping-distance measurement. |
+| Automatic startup recovery | Three identity reads `5449/3055` passed with seq unchanged at 1. Armed Safe Home restored Z trust; `MBSTART: recovery 1/3 complete; restarting stage POST_ZCAL` confirms stage recovery/replay. No manual recovery command or firmware restart is shown in this sequence. |
+| Replayed POST_ZCAL, 15:02 | First verification delta 0.035625 mm exceeded 0.020 mm; second adjacent delta 0.003750 mm passed. Eddy calibration and DONE followed. Record recovery and stage completion as PASS, not first-sample convergence. |
+| First task outcome | Pause at 15:44, resume at 15:55, cancellation at 15:58. Reason is unconfirmed. Do not classify the cancellation as a transport failure or count this task as a completed-print PASS. |
+| Second task, 16:39 to 16:49 | Safe Home, CLEAN, PRE_ZCAL, QGL, Z_HOME, adaptive mesh and POST_ZCAL completed in the supplied startup sequence. QGL range decreased from 0.136537 to 0.012517 mm against 0.100000 mm tolerance. PRE_ZCAL verification delta 0.007500 mm and POST_ZCAL delta 0.018750 mm passed. Mesh was 46 by 26. User reports printing still in progress; final outcome pending. |
+| Subsequent transport evidence | Visible PREARM sequence remains 1. Later `ldc err_code=34` is historical telemetry, not evidence of repeated new faults. No new fault sequence is shown during the second startup. |
+
+This adds one successful natural POST_ZCAL startup recovery episode. It does not exercise GR1.1 inherited-fault recovery at a top-level G28 entry, repeated faults within a replayed stage, or active rapid-scan fault recovery. It does not close exact-runtime identity, complete-print soak, installation or Full Restore gates.
+
+Continue ordinary supervised prints with existing settings. No threshold, retry budget, START_PRINT or G28 change is justified by these excerpts. Collect final completion/cancellation reasons, first-layer observations and startup/recovery console for subsequent prints; obtain runtime identity and recovery status when convenient without interrupting a print. Keep current safety gates and avoid deliberate electrical fault injection.
+
+The September 9 assessment below is a dated baseline; this field update supplements it without claiming all earlier gaps are closed.
+
+
 ## RC5 validation status, 2026-09-09
 
 Candidate: `rc5-dev`, assessed at commit `b2eb2bf3b1539e36a414ee6559404395a96b70a3`. Public baseline remains RC4. Runtime is SR1 + RS1 + GR1; see [version map](../VERSION_MAP.md) for exact identities.
