@@ -23,6 +23,20 @@ Continue ordinary supervised prints with existing settings. No threshold, retry 
 The September 9 assessment below is a dated baseline; this field update supplements it without claiming all earlier gaps are closed.
 
 
+### Follow-up at 16:55 to 16:59: QGL replay failed
+
+A further excerpt shows a file selection at 16:55 and a fresh startup sequence. The relationship to the previously ongoing task is unconfirmed; that task's final outcome remains pending.
+
+- Initial QGL transactions 0042 to 0044 passed. Transaction 0045 at X490 Y30 failed with raw34, seq 1 -> 2, reported final Z9.386 and descent 5.614 mm.
+- Three identity reads passed with seq 2 unchanged. Armed Safe Home transaction 0046 restored Z trust, and homing 0047 completed. The coordinator reported `recovery 1/3 complete; restarting stage QGL`.
+- Replayed QGL transactions 0048 to 0050 passed. Transaction 0051 again at X490 Y30 failed with raw34, seq 2 -> 3, reported final Z14.999 and descent 0.001 mm. Z trust was revoked again.
+- The explicit terminal reason was `second Eddy/PREARM fault before stage QGL completed`, followed by cancellation. This is the per-stage replay guard, not exhaustion of the three-recovery startup budget.
+- Classification: first transport/Z recovery PASS; QGL replay FAIL; observed stop-on-second-fault behavior PASS. Two new transport events, not one per repeated error line. This is not a completed-print PASS.
+- Both faults occurred at the same fourth QGL point. Record the positional correlation, but do not infer a cable, electrical or software root cause from two observations. Reported descent is not measured post-fault stopping distance.
+
+This adds natural evidence of the same-stage second-fault stop, which the earlier excerpts did not exercise. It does not validate GR1.1 G28 entry or justify raising retries. Preserve settings and collect current safety/recovery status plus the complete Klippy log around this startup before further recovery attempts. Earlier statements about no new sequence apply only through 16:49.
+
+
 ## RC5 validation status, 2026-09-09
 
 Candidate: `rc5-dev`, assessed at commit `b2eb2bf3b1539e36a414ee6559404395a96b70a3`. Public baseline remains RC4. Runtime is SR1 + RS1 + GR1; see [version map](../VERSION_MAP.md) for exact identities.
