@@ -1,5 +1,10 @@
 # RC5 Eddy Communication Test Evidence
 
+## 2026-10-08: GR1.1 installed, inherited-fault entry blocked
+
+User status confirms RC5-GR1.1 Ready at 17:44. Healthy G28 operations succeeded. At 17:53 PRE_ZCAL raw34 seq1 was recovered with fresh Safe Home; replay fault seq2 terminated the stage. A new print at 17:54 reported Internal error on command G28 and shutdown. The console does not contain the Python traceback. Source audit and a real-class regression independently reproduce AttributeError from the nonexistent PrinterEddyProbe.is_calibrated call. GR1.2 corrects the call and the test fixture. The new entry path is not hardware-qualified; preserve full klippy.log to confirm the field traceback. Do not count this as GR1.1 recovery PASS.
+
+
 [2026-09-09 offline reproduction and input hashes](RC5_OFFLINE_INSTALLER_FINDINGS.md)
 
 

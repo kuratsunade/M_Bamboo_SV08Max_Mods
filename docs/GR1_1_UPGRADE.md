@@ -1,3 +1,5 @@
+> GR1.1 is superseded by [GR1.2](GR1_2_UPGRADE.md), which fixes an AttributeError in the inherited-fault G28 entry. Do not install the old GR1.1 artifact.
+
 # GR1 to GR1.1 development upgrade
 
 This package targets an existing M_Bamboo RC5 installation. Wait until the printer is idle. It is a development candidate, not a final RC5 release.

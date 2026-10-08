@@ -26,8 +26,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(sha256sum backend/probe_eddy_current.py | awk '{print $1}')" = "119b6bf46f01ea40d2c946ddce7864d29e413b90eb7b7591572d5bed82b41aae"
-          grep -q '119b6bf46f01ea40d2c946ddce7864d29e413b90eb7b7591572d5bed82b41aae' installer.py
+          test "$(sha256sum backend/probe_eddy_current.py | awk '{print $1}')" = "ace3d4955610ef7fc84d48aec80009077c733678b3560800e257ca4c8b6b4243"
+          grep -q 'ace3d4955610ef7fc84d48aec80009077c733678b3560800e257ca4c8b6b4243' installer.py
           grep -q 'dcb78d4d7d5108236eca23a225e6e582e1b128419bf10c8a5b83cf8de346ced0' installer.py
 
       - name: Compile
@@ -86,7 +86,7 @@ jobs:
           m=json.load(open('installer_manifest.json'))
           assert m['release']=='1.0.0-rc5-dev'
           assert m['status']=='development-candidate'
-          assert m['backend_targets']['probe_eddy_current.py']=='119b6bf46f01ea40d2c946ddce7864d29e413b90eb7b7591572d5bed82b41aae'
+          assert m['backend_targets']['probe_eddy_current.py']=='ace3d4955610ef7fc84d48aec80009077c733678b3560800e257ca4c8b6b4243'
           d=m['development_lineage']
           assert d['public_release_contract'] is False
           assert d['validation_artifact_hashes_are_not_release_lineage'] is True

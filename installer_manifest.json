@@ -31,7 +31,7 @@
   },
   "backend_targets": {
     "ldc1612.py": "aa25833c27367905c68f27dfa6e4d669ddfe304bdaa23febee8287737f757e04",
-    "probe_eddy_current.py": "119b6bf46f01ea40d2c946ddce7864d29e413b90eb7b7591572d5bed82b41aae",
+    "probe_eddy_current.py": "ace3d4955610ef7fc84d48aec80009077c733678b3560800e257ca4c8b6b4243",
     "probe.py": "227d0c6b8527ece1793caf969d5292646ec185f65ca1c679ccf4195515dd529a",
     "M_Bamboo_Safe_Homing.py": "5f85a1a397413a7ab5da28d2b19b586a6d371b49a4793b80bc685d5adb0f9038",
     "z_offset_calibration.py": "1089df132131010f774d40b331fef4ff6ba02252f4b55c107846c6cc0a7a75ce"
@@ -69,7 +69,8 @@
     "dev_only_migration_sources": {
       "probe_eddy_current.py": [
         "dcb78d4d7d5108236eca23a225e6e582e1b128419bf10c8a5b83cf8de346ced0",
-        "5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29"
+        "5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29",
+        "119b6bf46f01ea40d2c946ddce7864d29e413b90eb7b7591572d5bed82b41aae"
       ]
     },
     "validation_artifact_hashes_are_not_release_lineage": true

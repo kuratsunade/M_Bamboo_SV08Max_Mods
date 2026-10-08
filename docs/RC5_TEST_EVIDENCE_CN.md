@@ -1,5 +1,10 @@
 # RC5 Eddy 通讯测试证据
 
+## 2026 年 10 月 8 日：GR1.1 已加载，遗留故障入口异常
+
+17:44 状态确认 RC5-GR1.1 Ready，健康 G28 已成功。17:53 PRE_ZCAL 的 raw34 seq1 经 Safe Home 恢复，重跑出现 seq2 后按规则停止。17:54 新打印的 G28 报 Internal error 并 shutdown。console 没有 Python traceback；源码核查和使用真实类的回归独立复现了不存在的 PrinterEddyProbe.is_calibrated 调用所引发的 AttributeError。GR1.2 修正调用与测试替身。该入口尚未通过实机验收，需完整 klippy.log 核对现场 traceback；不得记录为 GR1.1 自动入口恢复通过。
+
+
 [2026-09-09 offline reproduction and input hashes](RC5_OFFLINE_INSTALLER_FINDINGS.md)
 
 

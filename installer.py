@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent
 
 BACKEND_TARGETS = {
     "ldc1612.py": "aa25833c27367905c68f27dfa6e4d669ddfe304bdaa23febee8287737f757e04",
-    "probe_eddy_current.py": "119b6bf46f01ea40d2c946ddce7864d29e413b90eb7b7591572d5bed82b41aae",
+    "probe_eddy_current.py": "ace3d4955610ef7fc84d48aec80009077c733678b3560800e257ca4c8b6b4243",
     "probe.py": "227d0c6b8527ece1793caf969d5292646ec185f65ca1c679ccf4195515dd529a",
     "M_Bamboo_Safe_Homing.py": "5f85a1a397413a7ab5da28d2b19b586a6d371b49a4793b80bc685d5adb0f9038",
     "z_offset_calibration.py": "1089df132131010f774d40b331fef4ff6ba02252f4b55c107846c6cc0a7a75ce",
@@ -54,6 +54,8 @@ KNOWN_MB_SOURCES = {
         "aa25833c27367905c68f27dfa6e4d669ddfe304bdaa23febee8287737f757e04",
     },
     "probe_eddy_current.py": {
+        # Previous GR1.1 development backend (not Sovol stock).
+        "119b6bf46f01ea40d2c946ddce7864d29e413b90eb7b7591572d5bed82b41aae",
         # Exact previous RC5 combined development candidate (not Sovol stock).
         "5e108f1d1d7259d40dab03c967c1e3ffef33c31da1a0c15932b8a958b869cf29",
         "48cd4f98c2423970b6c49d138b78fb5805fd3e774d15ffb3d8d6575e844a06f9",

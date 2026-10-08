@@ -25,7 +25,7 @@
 ldc1612.py
   aa25833c27367905c68f27dfa6e4d669ddfe304bdaa23febee8287737f757e04
 probe_eddy_current.py
-  119b6bf46f01ea40d2c946ddce7864d29e413b90eb7b7591572d5bed82b41aae
+  ace3d4955610ef7fc84d48aec80009077c733678b3560800e257ca4c8b6b4243
 probe.py
   227d0c6b8527ece1793caf969d5292646ec185f65ca1c679ccf4195515dd529a
 M_Bamboo_Safe_Homing.py
@@ -54,4 +54,4 @@ One natural QGL raw34 automatic recovery passed on the combined candidate. Activ
 
 Development migration identities remain in installer.py and installer_manifest.json; they are not public compatibility claims. See [lineage policy](docs/RC5_LINEAGE_POLICY.md).
 
-Current host candidate: GR1.1 inherited-fault G28 entry. See [G28 entry notes](docs/RC5_G28_ENTRY.md). This revision requires hardware validation; earlier hardware evidence applies to the previous runtime.
+Current host candidate: GR1.2 inherited-fault G28 entry. See [G28 entry notes](docs/RC5_G28_ENTRY.md). This revision requires hardware validation; earlier hardware evidence applies to the previous runtime.

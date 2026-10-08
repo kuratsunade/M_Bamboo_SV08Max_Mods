@@ -1,3 +1,5 @@
+> GR1.1 is superseded by [GR1.2](GR1_2_UPGRADE.md), which fixes an AttributeError in the inherited-fault G28 entry. Do not install the old GR1.1 artifact.
+
 # RC5 GR1.1: inherited communication faults at G28 entry
 
 Development candidate, not yet hardware validated. No START_PRINT, Safe Home, G28 macro, MCU or retry-limit changes.

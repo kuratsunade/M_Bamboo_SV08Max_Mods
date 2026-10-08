@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Source-extracted GR1 entry regression, no hardware or motion."""
 from types import SimpleNamespace
-from test_rc5_combined_runtime import make_supervisor, GCmd, CmdError
+from test_rc5_combined_runtime import make_supervisor, GCmd, CmdError, load_class
 
 class Cmd(GCmd):
     def __init__(self, params=None):
@@ -24,9 +24,14 @@ def setup(state='TRANSPORT_FAULT', params=None):
     def check(g):
         calls.append('check')
         s._status['transport_state'] = 'TRANSPORT_RECOVERED'
-    s._probe_obj = SimpleNamespace(is_calibrated=lambda: True,
-        mcu_probe=SimpleNamespace(_consume_pending_transport_fault=lambda: None,
-                                 run_transport_recovery_check=check))
+    probe_cls = load_class("PrinterEddyProbe")
+    calibration_cls = load_class("EddyCalibration")
+    s._probe_obj = object.__new__(probe_cls)
+    s._probe_obj.calibration = object.__new__(calibration_cls)
+    s._probe_obj.calibration.cal_freqs = [1., 2., 3.]
+    s._probe_obj.mcu_probe = SimpleNamespace(
+        _consume_pending_transport_fault=lambda: None,
+        run_transport_recovery_check=check)
     s._safe_home = lambda: object()
     return s, Cmd(params), calls
 
@@ -58,7 +63,7 @@ def test_locks_and_mixed_axes():
     for state in ('HARD_COMM_FAULT','TRANSPORT_FAULT'):
         s,g,c=setup(state);s._status['restart_required']=True
         fails(lambda:s._dispatch('G28',g),'locked');assert c==[]
-    s,g,c=setup();s._probe_obj.is_calibrated=lambda:False
+    s,g,c=setup();s._probe_obj.calibration.cal_freqs=[]
     fails(lambda:s._dispatch('G28',g),'not calibrated');assert c==[]
 
 def test_check_failure_terminal():

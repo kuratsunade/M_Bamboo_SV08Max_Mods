@@ -1758,7 +1758,7 @@ class MBambooRecoverySupervisor:
     owner.  Sensor, bulk, lookahead and toolhead-flush callbacks remain outside
     this workflow layer.
     """
-    VERSION = 'RC5-GR1.1'
+    VERSION = 'RC5-GR1.2'
     COMMANDS = (
         'G28',
         'RUN_PROBE_VIR_CONTACT',
@@ -1908,7 +1908,7 @@ class MBambooRecoverySupervisor:
             raise gcmd.error('M_Bamboo G28 entry: recovery locked; FIRMWARE_RESTART required')
         if axes and axes != {'Z'}:
             raise gcmd.error('M_Bamboo G28 entry: inherited fault requires G28 or G28 Z; mixed Z axes are not supported by this macro')
-        if not self._probe_obj.is_calibrated():
+        if not self._probe_obj.calibration.is_calibrated():
             raise gcmd.error('M_Bamboo G28 entry: probe is not calibrated; automatic inherited-fault recovery refused')
         self._safe_home()  # Refuse missing Safe Home before granting recovery.
         return True
